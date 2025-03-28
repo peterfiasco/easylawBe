@@ -61,6 +61,7 @@ import { Server } from 'socket.io';
 import http from 'http';
 import connectDB from "./config/db";
 
+
 import authRouter from "./routes/Auth/auth.route";
 import Dashboardrouter from "./routes/Dashboard/SettingRoutes";
 import Consultationrouter from "./routes/Dashboard/ConsultationRoutes";
@@ -84,7 +85,11 @@ console.log("Trust proxy is set:", app.get("trust proxy")); // Debug log
 // Connect to database (only once)
 connectDB();
 
-app.use(cors());
+// In src/index.ts, update the CORS configuration
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || 'https://easylawsolution.com',
+  credentials: true
+}));
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
