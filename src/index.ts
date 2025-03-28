@@ -110,6 +110,16 @@ app.use('/api/chatgpt', ChatGptRoute);
 app.use("/api/documents", DocumentsRouter);
 
 
+// Add a test endpoint that will always respond
+app.get("/api/test", (req, res) => {
+  console.log("Test API called");
+  res.json({
+    success: true,
+    message: "API is connected!",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
 
 
 
