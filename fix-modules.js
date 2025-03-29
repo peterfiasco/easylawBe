@@ -39,11 +39,34 @@ function walkAndFix(dir) {
         }
       );
       
+      // Fix syntax errors that might remain
+      content = content.replace(/class\s+(\w+)\s*;/g, 'class $1 {}');
+      content = content.replace(/;\s*}/g, ' }');
+      
       fs.writeFileSync(filePath, content);
     }
   }
 }
 
+// Fix specific files that are known to cause problems
+function fixSpecificFiles() {
+  // Check if index.js exists
+  const indexPath = path.join('dist', 'index.js');
+  if (fs.existsSync(indexPath)) {
+    let content = fs.readFileSync(indexPath, 'utf8');
+    
+    // Make sure the import of ChatController is correct
+    content = content.replace(
+      /const\s*\{\s*ChatController\s*\}\s*=\s*require\(['"](.*?)['"]\)/g,
+      'const { ChatController } = require("./controllers/Chat/ChatController.js")'
+    );
+    
+    fs.writeFileSync(indexPath, content);
+    console.log('Fixed imports in index.js');
+  }
+}
+
 console.log('Starting module path fixes...');
 walkAndFix('dist');
+fixSpecificFiles();
 console.log('Module path fixes completed!');
