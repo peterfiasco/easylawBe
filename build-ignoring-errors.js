@@ -13,21 +13,8 @@ const tsconfig = {
     skipLibCheck: true,
     strict: false,
     noImplicitAny: false,
-    strictNullChecks: false,
-    strictFunctionTypes: false,
-    strictBindCallApply: false,
-    strictPropertyInitialization: false,
-    noImplicitThis: false,
-    noUnusedLocals: false,
-    noUnusedParameters: false,
-    noImplicitReturns: false,
-    noFallthroughCasesInSwitch: false,
-    allowJs: true,
-    declaration: false,
-    typeRoots: ["./node_modules/@types", "./src/types"],
-    resolveJsonModule: true,
-    emitDecoratorMetadata: true,
-    experimentalDecorators: true
+    moduleResolution: "node",
+    resolveJsonModule: true
   },
   include: ["src/**/*"],
   exclude: ["node_modules"]
@@ -64,11 +51,48 @@ function walkAndTranspile(dir) {
       
       ensureDirectoryExists(outputPath);
       
-      // Very basic transpilation: just remove types
+      // Very basic transpilation: just remove types and convert imports
       let content = fs.readFileSync(filePath, 'utf8');
       
       // Remove import type statements
       content = content.replace(/import\s+type\s+.*?;/g, '');
+      
+      // Fix import statements for ESM to CommonJS compatibility
+      content = content.replace(/import\s+(\{[\s\w,]+\})\s+from\s+['"]([^'"]+)['"]/g, 
+        (match, imports, source) => {
+          // Add .js extension for relative imports
+          if (source.startsWith('./') || source.startsWith('../')) {
+            if (!source.endsWith('.js')) {
+              source = `${source}.js`;
+            }
+          }
+          return `const ${imports} = require('${source}')`;
+        }
+      );
+      
+      // Fix default imports
+      content = content.replace(/import\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g, 
+        (match, name, source) => {
+          // Add .js extension for relative imports
+          if (source.startsWith('./') || source.startsWith('../')) {
+            if (!source.endsWith('.js')) {
+              source = `${source}.js`;
+            }
+          }
+          return `const ${name} = require('${source}')`;
+        }
+      );
+      
+      // Fix export default statements
+      content = content.replace(/export\s+default\s+(\w+)/g, 'module.exports = $1');
+      
+      // Fix named exports
+      content = content.replace(/export\s+(\{[\s\w,]+\})/g, 'module.exports = $1');
+      content = content.replace(/export\s+(const|let|var|function|class)\s+(\w+)/g, 
+        (match, keyword, name) => {
+          return `${keyword} ${name};\nmodule.exports.${name} = ${name}`;
+        }
+      );
       
       // Remove type annotations
       content = content.replace(/:\s*[a-zA-Z0-9_<>[\].|,\s]+(?=[,)=;])/g, '');
