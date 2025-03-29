@@ -19,6 +19,14 @@ const cors = require("cors");
 
 dotenv.config();
 
+// Debug environment variables
+console.log("Environment variables:");
+console.log("NODE_ENV:", process.env.NODE_ENV);
+console.log("PORT:", process.env.PORT);
+console.log("CORS_ORIGIN:", process.env.CORS_ORIGIN);
+console.log("JWT_SECRET length:", process.env.JWT_SECRET ? process.env.JWT_SECRET.length : 0);
+// Don't log the actual secret for security reasons
+
 const app = express();
 const port = process.env.PORT || 5000;
 const server = http.createServer(app);

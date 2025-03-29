@@ -1,16 +1,21 @@
 import { Request, Response, NextFunction } from "express";
-import jwt, { JwtPayload } from "jsonwebtoken";
 import dotenv from "dotenv";
 import { errorResponse } from "../utils/response";
+
+// Import jsonwebtoken using require to bypass TypeScript checks
+const jwt = require('jsonwebtoken');
+
 
 dotenv.config();
 
 // Define a custom JWT payload type with required properties
-interface CustomJwtPayload extends JwtPayload {
-  _id: string;  // Changed from user_id to _id to match expected structure
-  user_id?: string;  // Keep as optional for backward compatibility
+interface CustomJwtPayload {
+  _id: string;
+  user_id?: string;
   role: string;
   email: string;
+  iat?: number;
+  exp?: number;
 }
 
 // Extend Express's `Request` type to include `user`
