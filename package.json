@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
- "scripts": {
+  "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon",
-    "build": "tsc --skipLibCheck",
+    "build": "node ./node_modules/typescript/bin/tsc --skipLibCheck",
     "start": "node dist/index.js"
   },
   "keywords": [],
@@ -29,7 +29,8 @@
     "mongoose": "^8.12.1",
     "openai": "^4.89.0",
     "pdfkit": "^0.16.0",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "typescript": "^5.8.2"
   },
   "devDependencies": {
     "@types/express": "^5.0.1",
@@ -37,7 +38,6 @@
     "@types/node": "^22.13.9",
     "@types/pdfkit": "^0.13.9",
     "nodemon": "^3.1.9",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.8.2"
+    "ts-node": "^10.9.2"
   }
 }
