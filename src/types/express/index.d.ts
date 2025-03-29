@@ -1,9 +1,11 @@
-import { Request, Response, NextFunction, Router } from 'express';
+import * as express from 'express';
 
 declare global {
-  interface CustomRequest extends Request {
-    user?: any;
+  namespace Express {
+    interface Request {
+      user?: any;
+    }
   }
 }
 
-export { Request, Response, NextFunction, Router };
+export = express;

@@ -5,11 +5,12 @@ npm install
 # Install type dependencies needed
 npm install --save-dev @types/body-parser @types/jsonwebtoken @types/pdfkit
 
-# Ensure TypeScript is available
-npm install --save-dev typescript
+# Fix imports in the TypeScript files
+node fix-imports.js
 
 # Use the permissive config
 cp tsconfig.render.json tsconfig.json
 
 # Build the project
-npx tsc
+npx tsc --skipLibCheck
+"
