@@ -1,106 +1,96 @@
 import express from "express";
 import dotenv from "dotenv";
-import cors from "cors";
 import bodyParser from "body-parser";
 import rateLimit from "express-rate-limit";
-import { Server } from "socket.io";
-import http from "http";
+import { Server } from 'socket.io';
+import http from 'http';
 import connectDB from "./config/db";
-import { ChatController } from "./controllers/Chat/ChatController";
-
-// Routes
-const registerRoute = require("./routes/Auth/RegisterRoute");
 import authRouter from "./routes/Auth/auth.route";
 import Dashboardrouter from "./routes/Dashboard/SettingRoutes";
 import Consultationrouter from "./routes/Dashboard/ConsultationRoutes";
 import PaymentRouter from "./routes/Payment/PaymentRoutes";
+import { ChatController } from "./controllers/Chat/ChatController";
 import AdminRouter from "./routes/Admin/AdminRoutes";
-import ChatGptRoute from "./routes/ChatGptRoute";
+import ChatGptRoute from './routes/ChatGptRoute';
 import DocumentsRouter from "./routes/Documents/documents.route";
 
-// 1) Load env
+const registerRoute = require("./routes/Auth/RegisterRoute");
+const cors = require("cors");
+
 dotenv.config();
 
-// 2) Create Express and HTTP server
 const app = express();
 const port = process.env.PORT || 5000;
 const server = http.createServer(app);
 
-// 3) Trust proxy if needed
+// ✅ Trust the proxy BEFORE middleware
 app.set("trust proxy", 1);
-console.log("Trust proxy is set:", app.get("trust proxy"));
+console.log("Trust proxy is set:", app.get("trust proxy")); // Debug log
 
-// 4) Connect to DB
+// Connect to database (only once)
 connectDB();
 
-// 5) Express-level CORS (FROM NEW CODE)
-const allowedOrigins = (process.env.CORS_ORIGIN || "").split(",").map((o) => o.trim());
-console.log("allowedOrigins array:", allowedOrigins);
+// Configure CORS based on environment
+const allowedOrigins = (process.env.CORS_ORIGIN || "*").split(',').map(o => o.trim());
+console.log("Configured CORS with origins:", allowedOrigins);
 
-app.use(
-  cors({
-    origin: allowedOrigins,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
-  })
-);
+app.use(cors({
+  origin: allowedOrigins,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+}));
 
-// 6) Middleware
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
-// 7) Rate limiter
 app.use(
   rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 60,                  // block after 60 requests
+    windowMs: 15 * 60 * 1000,
+    max: 60,
   })
 );
 
-// 8) Use routes
 app.use("/api/register", registerRoute);
 app.use("/api/auth", authRouter);
 app.use("/api/dashboard", Dashboardrouter);
 app.use("/api/consult", Consultationrouter);
 app.use("/api/pay", PaymentRouter);
 app.use("/api/admin", AdminRouter);
-app.use("/api/chatgpt", ChatGptRoute);
+app.use('/api/chatgpt', ChatGptRoute);
 app.use("/api/documents", DocumentsRouter);
 
-// 9) Socket.io CONFIG (REVERTED TO OLD WORKING CODE)
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
+    origin: '*',
+    methods: ['GET', 'POST'],
     credentials: false,
   },
 });
 
-// 10) Chat Controller
+//socket middleware
 const socketController = new ChatController(io);
 
-io.on("connection", (socket) => {
-  console.log("Socket.io connection established. Socket ID:", socket.id);
+io.on('connection', (socket) => {
+  console.log("Socket connected:", socket.id);
   socketController.initializeConnection(socket);
 
-  socket.on("connect_error", (err) => {
+  socket.on('connect_error', (err) => {
     console.log(`Connection error: ${err.message}`);
   });
 });
 
-// 11) Simple test route
 app.get("/", (req, res) => {
-  res.json({ message: "Hello from the local server (hybrid config)!" });
+  res.json({ message: "Hello from the local server!" });
 });
 
-// 12) Start server if not in production
-if (process.env.NODE_ENV !== 'production') {
+// ✅ Local development: Start the Express server only if not in a Vercel environment
+if (process.env.NODE_ENV !== "production") {
   server.listen(port, () => {
-    console.log(`Server running on port ${port}`);
+    console.log(`Server is running on port ${port}`);
   });
 }
 
-// 13) Export for Vercel/Render
+// ✅ Export app for Vercel/Render deployment
 export default app;

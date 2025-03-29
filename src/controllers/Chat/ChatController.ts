@@ -1,4 +1,5 @@
-import { Server, Socket } from "socket.io";
+import { Server } from "socket.io";
+import type { Socket as ClientSocket } from "socket.io/dist/socket";
 import { GenerateLegalAdvise } from "../AI/AISearchService";
 
 export class ChatController {
@@ -8,9 +9,9 @@ export class ChatController {
     this.io = io;
   }
 
-  public initializeConnection = async (socket: Socket) => {
+  public initializeConnection = async (socket: ClientSocket) => {
     console.log("Initialize the socket");
-
+    
     // Listen for the 'searchquery' event
     socket.on("searchquery", async ({ query, model }) => {
       try {
@@ -19,7 +20,6 @@ export class ChatController {
         // Provide an empty array as chatHistory
         // or pass any existing array of messages if you have it
         const response = await GenerateLegalAdvise(query, []);
-
         // Emit 'queryResult' back to the client
         socket.emit("queryResult", {
           success: true,
