@@ -61,13 +61,15 @@ app.use("/api/admin", AdminRouter);
 app.use('/api/chatgpt', ChatGptRoute);
 app.use("/api/documents", DocumentsRouter);
 
+// Update the Socket.io CORS settings to match Express CORS settings
 const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: allowedOrigins, // Use the same origins as Express
     methods: ['GET', 'POST'],
-    credentials: false,
+    credentials: true, // Set to true to match Express
   },
 });
+
 
 //socket middleware
 const socketController = new ChatController(io);
