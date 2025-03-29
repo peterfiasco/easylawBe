@@ -39,7 +39,7 @@ console.log("allowedOrigins array:", allowedOrigins);
 
 app.use(
   cors({
-    origin: allowedOrigins, // from new code
+    origin: allowedOrigins,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
@@ -72,7 +72,7 @@ app.use("/api/documents", DocumentsRouter);
 // 9) Socket.io CONFIG (REVERTED TO OLD WORKING CODE)
 const io = new Server(server, {
   cors: {
-    origin: "*",   // <--- revert to '*'
+    origin: "*",
     methods: ["GET", "POST"],
     credentials: false,
   },
@@ -95,7 +95,12 @@ app.get("/", (req, res) => {
   res.json({ message: "Hello from the local server (hybrid config)!" });
 });
 
-// 12) Conditionally start server if not Vercel
+// 12) Start server if not in production
+if (process.env.NODE_ENV !== 'production') {
+  server.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+  });
+}
 
-// 13) Export for Vercel
+// 13) Export for Vercel/Render
 export default app;
