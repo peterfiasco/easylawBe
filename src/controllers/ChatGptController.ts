@@ -85,51 +85,66 @@ export class ChatGptController {
   /**
  * Check if a query is related to Nigerian legal topics
  */
-public static checkLegalQuery: RequestHandler = async (req, res) => {
-  try {
-    const { query } = req.body;
-
-    // Basic validation
-    if (!query) {
-      res.status(400).json({
+  public static checkLegalQuery: RequestHandler = async (req, res) => {
+    try {
+      const { query } = req.body;
+  
+      // Basic validation
+      if (!query) {
+        res.status(400).json({
+          success: false,
+          error: 'Query is required.'
+        });
+        return; // Just return without a value
+      }
+  
+      console.log("API Key available:", !!process.env.OPENAI_API_KEY);
+      
+      try {
+        // Use OpenAI to determine if query is related to Nigerian law
+        const isLegalQuery = await openai.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a helpful assistant that determines if a query is related to Nigerian legal topics. Reply with either "true" or "false" only.',
+            },
+            {
+              role: 'user',
+              content: `Is this question related to Nigerian law or legal matters? Question: "${query}"`,
+            },
+          ],
+          max_tokens: 10,
+          temperature: 0.1,
+        });
+  
+        const isLegalQueryResult = isLegalQuery.choices?.[0]?.message?.content?.toLowerCase().includes('true');
+  
+        // Send the result
+        res.json({
+          success: true,
+          isLegalQuery: isLegalQueryResult
+        });
+        // Don't return the result of res.json()
+      } catch (openAiError) {
+        console.error('OpenAI API Error:', openAiError);
+        res.status(500).json({
+          success: false,
+          error: 'OpenAI API error: ' + openAiError.message
+        });
+        // Don't return the result of res.status().json()
+      }
+    } catch (error) {
+      console.error('General Error in checkLegalQuery:', error);
+      res.status(500).json({
         success: false,
-        error: 'Query is required.'
+        error: 'Server error: ' + (error.message || 'Unknown error')
       });
-      return;
+      // Don't return the result of res.status().json()
     }
-
-    // Use OpenAI to determine if query is related to Nigerian law
-    const isLegalQuery = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a helpful assistant that determines if a query is related to Nigerian legal topics. Reply with either "true" or "false" only.',
-        },
-        {
-          role: 'user',
-          content: `Is this question related to Nigerian law or legal matters? Question: "${query}"`,
-        },
-      ],
-      max_tokens: 10,
-      temperature: 0.1,
-    });
-
-    const isLegalQueryResult = isLegalQuery.choices?.[0]?.message?.content?.toLowerCase().includes('true');
-
-    // Send the result
-    res.json({
-      success: true,
-      isLegalQuery: isLegalQueryResult
-    });
-  } catch (error: any) {
-    console.error('Error in ChatGptController.checkLegalQuery:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to check if query is legal related.'
-    });
-  }
-};
+  };
+  
+  
 
   /**
    * Handle chat messages with legal queries
