@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 import { Server } from 'socket.io';
 import http from 'http';
 import connectDB from "./config/db";
+
 import authRouter from "./routes/Auth/auth.route";
 import Dashboardrouter from "./routes/Dashboard/SettingRoutes";
 import Consultationrouter from "./routes/Dashboard/ConsultationRoutes";
@@ -39,15 +40,21 @@ console.log("Trust proxy is set:", app.get("trust proxy")); // Debug log
 connectDB();
 
 // Configure CORS based on environment
-const allowedOrigins = (process.env.CORS_ORIGIN || "*").split(',').map(o => o.trim());
-console.log("Configured CORS with origins:", allowedOrigins);
+const allowedOrigins = (process.env.CORS_ORIGIN || "*")
+  .split(',')
+  .map(o => o.trim());
 
-app.use(cors({
-  origin: allowedOrigins,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
-}));
+// Extra debug log to confirm which origins we’re allowing
+console.log("Allowed origins array:", allowedOrigins);
+
+app.use(
+  cors({
+    origin: allowedOrigins,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true
+  })
+);
 
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -78,8 +85,7 @@ const io = new Server(server, {
   },
 });
 
-
-//socket middleware
+// socket middleware
 const socketController = new ChatController(io);
 
 io.on('connection', (socket) => {
