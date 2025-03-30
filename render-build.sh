@@ -4,7 +4,7 @@
 npm install
 
 # Build with TypeScript
-npm run build
+npx tsc
 
 # Ensure Node.js knows this is CommonJS
 echo "{\"type\": \"commonjs\"}" > dist/package.json
