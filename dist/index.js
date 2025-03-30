@@ -83,10 +83,5 @@ app.get("/", (req, res) => {
     res.json({ message: "Hello from the local server!" });
 });
 // ✅ Local development: Start the Express server only if not in a Vercel environment
-if (process.env.NODE_ENV !== "production") {
-    server.listen(port, () => {
-        console.log(`Server is running on port ${port}`);
-    });
-}
 // ✅ Export app for Vercel/Render deployment
 exports.default = app;
