@@ -24,11 +24,10 @@ _a = DocumentsController;
 // GET /api/documents
 DocumentsController.getAllDocuments = (req, res, next) => {
     const fetchDocuments = () => __awaiter(void 0, void 0, void 0, function* () {
-        var _b;
+        var _b, _c;
         try {
-            // Type assertion is needed here to satisfy TypeScript
-            const typedReq = req;
-            const userId = (_b = typedReq.user) === null || _b === void 0 ? void 0 : _b._id;
+            // Get userId from authenticated user in request
+            const userId = ((_b = req.user) === null || _b === void 0 ? void 0 : _b._id) || ((_c = req.user) === null || _c === void 0 ? void 0 : _c.user_id);
             if (!userId) {
                 res.status(401).json({ message: "Authentication required" });
                 return;
@@ -47,12 +46,11 @@ DocumentsController.getAllDocuments = (req, res, next) => {
 // POST /api/documents/save
 DocumentsController.saveDocument = (req, res, next) => {
     const saveDoc = () => __awaiter(void 0, void 0, void 0, function* () {
-        var _b;
+        var _b, _c;
         try {
             const { title, finalDoc } = req.body;
-            // Type assertion is needed here
-            const typedReq = req;
-            const userId = (_b = typedReq.user) === null || _b === void 0 ? void 0 : _b._id;
+            // Get userId from authenticated user
+            const userId = ((_b = req.user) === null || _b === void 0 ? void 0 : _b._id) || ((_c = req.user) === null || _c === void 0 ? void 0 : _c.user_id);
             if (!title || !finalDoc) {
                 res.status(400).json({ message: "Missing title or finalDoc" });
                 return;
@@ -84,12 +82,10 @@ DocumentsController.saveDocument = (req, res, next) => {
 // POST /api/documents/export
 DocumentsController.exportDocument = (req, res, next) => {
     const exportDoc = () => __awaiter(void 0, void 0, void 0, function* () {
-        var _b;
+        var _b, _c;
         try {
             const { format, content, title } = req.body;
-            // Type assertion
-            const typedReq = req;
-            const userId = (_b = typedReq.user) === null || _b === void 0 ? void 0 : _b._id;
+            const userId = ((_b = req.user) === null || _b === void 0 ? void 0 : _b._id) || ((_c = req.user) === null || _c === void 0 ? void 0 : _c.user_id);
             if (!format || !content) {
                 res.status(400).json({ message: "Missing format or content" });
                 return;
@@ -143,12 +139,10 @@ DocumentsController.exportDocument = (req, res, next) => {
 // DELETE /api/documents/:id
 DocumentsController.deleteDocument = (req, res, next) => {
     const deleteDoc = () => __awaiter(void 0, void 0, void 0, function* () {
-        var _b;
+        var _b, _c;
         try {
             const documentId = req.params.id;
-            // Type assertion
-            const typedReq = req;
-            const userId = (_b = typedReq.user) === null || _b === void 0 ? void 0 : _b._id;
+            const userId = ((_b = req.user) === null || _b === void 0 ? void 0 : _b._id) || ((_c = req.user) === null || _c === void 0 ? void 0 : _c.user_id);
             if (!userId) {
                 res.status(401).json({ message: "Authentication required" });
                 return;
@@ -176,12 +170,10 @@ DocumentsController.deleteDocument = (req, res, next) => {
 // GET /api/documents/:id
 DocumentsController.getDocumentById = (req, res, next) => {
     const fetchDocument = () => __awaiter(void 0, void 0, void 0, function* () {
-        var _b;
+        var _b, _c;
         try {
             const documentId = req.params.id;
-            // Type assertion
-            const typedReq = req;
-            const userId = (_b = typedReq.user) === null || _b === void 0 ? void 0 : _b._id;
+            const userId = ((_b = req.user) === null || _b === void 0 ? void 0 : _b._id) || ((_c = req.user) === null || _c === void 0 ? void 0 : _c.user_id);
             if (!userId) {
                 res.status(401).json({ message: "Authentication required" });
                 return;

@@ -1,52 +1,8 @@
 "use strict";
-// import express from "express";
-// import { VercelRequest, VercelResponse } from "@vercel/node";
-// import dotenv from "dotenv";
-// import bodyParser from "body-parser";
-// import rateLimit from "express-rate-limit";
-// import appRoot from "app-root-path";
-// import path from "path";
-// import http from "http";
-// import connectDB from "./config/db";
-// import authRouter from "./routes/Auth/auth.route";
-// import Dashboardrouter from "./routes/Dashboard/SettingRoutes";
-// import Consultationrouter from "./routes/Dashboard/ConsultationRoutes";
-// import PaymentRouter from "./routes/Payment/PaymentRoutes";
-// const registerRoute = require("./routes/Auth/RegisterRoute");
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-// const cors = require("cors");
-// dotenv.config();
-// const port = process.env.PORT;
-// const app = express();
-// // Enable CORS for all routes
-// app.use(cors());
-// const server = http.createServer(app);
-// app.use(express.json());
-// app.use(bodyParser.urlencoded({ extended: true }));
-// app.use(bodyParser.json());
-// app.use(
-//   rateLimit({
-//     windowMs: 15 * 60 * 1000,
-//     max: 60,
-//   })
-// );
-// app.use("/api/register", registerRoute);
-// app.use("/api/auth", authRouter);
-// app.use("/api/dashboard", Dashboardrouter);
-// app.use("/api/consult", Consultationrouter);
-// app.use("/api/pay", PaymentRouter);
-// app.use("/resources", express.static(path.join(appRoot.path, "src/resources")));
-// app.get("/", (req, res) => {
-//   res.json({ message: "Hello from Vercel Serverless Function!" });
-// });
-// server.listen(port, () => {
-//   console.log(`Server is running on port ${port}`);
-//   //connect to DB
-//   connectDB();
-// });
 const express_1 = __importDefault(require("express"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const body_parser_1 = __importDefault(require("body-parser"));
@@ -65,15 +21,32 @@ const documents_route_1 = __importDefault(require("./routes/Documents/documents.
 const registerRoute = require("./routes/Auth/RegisterRoute");
 const cors = require("cors");
 dotenv_1.default.config();
+// Debug environment variables
+console.log("Environment variables:");
+console.log("NODE_ENV:", process.env.NODE_ENV);
+console.log("PORT:", process.env.PORT);
+console.log("CORS_ORIGIN:", process.env.CORS_ORIGIN);
+console.log("JWT_SECRET length:", process.env.JWT_SECRET ? process.env.JWT_SECRET.length : 0);
+// Don't log the actual secret for security reasons
 const app = (0, express_1.default)();
 const port = process.env.PORT || 5000;
 const server = http_1.default.createServer(app);
 // ✅ Trust the proxy BEFORE middleware
 app.set("trust proxy", 1);
-console.log("Trust proxy is set:", app.get("trust proxy")); // Debug log
 // Connect to database (only once)
 (0, db_1.default)();
-app.use(cors());
+// Configure CORS based on environment
+const allowedOrigins = (process.env.CORS_ORIGIN || "*")
+    .split(',')
+    .map(o => o.trim());
+// Extra debug log to confirm which origins we’re allowing
+console.log("Allowed origins array:", allowedOrigins);
+app.use(cors({
+    origin: allowedOrigins,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true
+}));
 app.use(express_1.default.json());
 app.use(body_parser_1.default.urlencoded({ extended: true }));
 app.use(body_parser_1.default.json());
@@ -89,17 +62,18 @@ app.use("/api/pay", PaymentRoutes_1.default);
 app.use("/api/admin", AdminRoutes_1.default);
 app.use('/api/chatgpt', ChatGptRoute_1.default);
 app.use("/api/documents", documents_route_1.default);
+// Update the Socket.io CORS settings to match Express CORS settings
 const io = new socket_io_1.Server(server, {
     cors: {
-        origin: '*',
+        origin: allowedOrigins, // Use the same origins as Express
         methods: ['GET', 'POST'],
-        credentials: false,
+        credentials: true, // Set to true to match Express
     },
 });
-//socket middleware
+// socket middleware
 const socketController = new ChatController_1.ChatController(io);
 io.on('connection', (socket) => {
-    // console.log("socket", socket)
+    console.log("Socket connected:", socket.id);
     socketController.initializeConnection(socket);
     socket.on('connect_error', (err) => {
         console.log(`Connection error: ${err.message}`);
@@ -109,10 +83,10 @@ app.get("/", (req, res) => {
     res.json({ message: "Hello from the local server!" });
 });
 // ✅ Local development: Start the Express server only if not in a Vercel environment
-if (process.env.NODE_ENV !== "vercel") {
+if (process.env.NODE_ENV !== "production") {
     server.listen(port, () => {
         console.log(`Server is running on port ${port}`);
     });
 }
-// ✅ Export app for Vercel deployment
+// ✅ Export app for Vercel/Render deployment
 exports.default = app;

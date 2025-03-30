@@ -105,37 +105,50 @@ ChatGptController.checkLegalQuery = (req, res) => __awaiter(void 0, void 0, void
                 success: false,
                 error: 'Query is required.'
             });
-            return;
+            return; // Just return without a value
         }
-        // Use OpenAI to determine if query is related to Nigerian law
-        const isLegalQuery = yield openai.chat.completions.create({
-            model: 'gpt-3.5-turbo',
-            messages: [
-                {
-                    role: 'system',
-                    content: 'You are a helpful assistant that determines if a query is related to Nigerian legal topics. Reply with either "true" or "false" only.',
-                },
-                {
-                    role: 'user',
-                    content: `Is this question related to Nigerian law or legal matters? Question: "${query}"`,
-                },
-            ],
-            max_tokens: 10,
-            temperature: 0.1,
-        });
-        const isLegalQueryResult = (_e = (_d = (_c = (_b = isLegalQuery.choices) === null || _b === void 0 ? void 0 : _b[0]) === null || _c === void 0 ? void 0 : _c.message) === null || _d === void 0 ? void 0 : _d.content) === null || _e === void 0 ? void 0 : _e.toLowerCase().includes('true');
-        // Send the result
-        res.json({
-            success: true,
-            isLegalQuery: isLegalQueryResult
-        });
+        console.log("API Key available:", !!process.env.OPENAI_API_KEY);
+        try {
+            // Use OpenAI to determine if query is related to Nigerian law
+            const isLegalQuery = yield openai.chat.completions.create({
+                model: 'gpt-3.5-turbo',
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'You are a helpful assistant that determines if a query is related to Nigerian legal topics. Reply with either "true" or "false" only.',
+                    },
+                    {
+                        role: 'user',
+                        content: `Is this question related to Nigerian law or legal matters? Question: "${query}"`,
+                    },
+                ],
+                max_tokens: 10,
+                temperature: 0.1,
+            });
+            const isLegalQueryResult = (_e = (_d = (_c = (_b = isLegalQuery.choices) === null || _b === void 0 ? void 0 : _b[0]) === null || _c === void 0 ? void 0 : _c.message) === null || _d === void 0 ? void 0 : _d.content) === null || _e === void 0 ? void 0 : _e.toLowerCase().includes('true');
+            // Send the result
+            res.json({
+                success: true,
+                isLegalQuery: isLegalQueryResult
+            });
+            // Don't return the result of res.json()
+        }
+        catch (openAiError) {
+            console.error('OpenAI API Error:', openAiError);
+            res.status(500).json({
+                success: false,
+                error: 'OpenAI API error: ' + openAiError.message
+            });
+            // Don't return the result of res.status().json()
+        }
     }
     catch (error) {
-        console.error('Error in ChatGptController.checkLegalQuery:', error);
+        console.error('General Error in checkLegalQuery:', error);
         res.status(500).json({
             success: false,
-            error: 'Failed to check if query is legal related.'
+            error: 'Server error: ' + (error.message || 'Unknown error')
         });
+        // Don't return the result of res.status().json()
     }
 });
 /**
