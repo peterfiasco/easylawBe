@@ -34,7 +34,6 @@ const server = http.createServer(app);
 
 // ✅ Trust the proxy BEFORE middleware
 app.set("trust proxy", 1);
-console.log("Trust proxy is set:", app.get("trust proxy")); // Debug log
 
 // Connect to database (only once)
 connectDB();
