@@ -1,10 +1,13 @@
-import Joi from "joi";
+import Joi from 'joi';
 
+// Update the BookConsultationSchema
 export const BookConsultationSchema = Joi.object({
-    call_type: Joi.string().valid('video', 'phone').required(),
-    date: Joi.date().required(),
-    time: Joi.string().required()
+  consultation_type_id: Joi.string().required(),
+  date: Joi.date().required(),
+  time: Joi.string().required(),
+  reason: Joi.string().required().min(10).max(500)
 })
+
 export const BusinessSchema = Joi.object({
     name: Joi.string().required(),
     business: Joi.string().required()

@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -15,10 +48,16 @@ var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ChatGptController = void 0;
 const openai_1 = __importDefault(require("openai"));
+const DocumentTemplate_1 = __importDefault(require("../models/DocumentTemplate"));
+const mammoth = __importStar(require("mammoth"));
 /**
  * Make sure openai@4.x is installed:
  *   npm install openai@latest
  * package.json should show e.g. "openai": "^4.89.0"
+ *
+ * Also install:
+ *   npm install mammoth --save
+ * For converting docx to text
  */
 const openai = new openai_1.default({
     apiKey: process.env.OPENAI_API_KEY,
@@ -35,33 +74,122 @@ _a = ChatGptController;
 ChatGptController.generateDocument = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _b, _c, _d;
     try {
-        const { templateType, placeholders } = req.body;
+        console.log('[DEBUG] Generate Document Request:', {
+            hasTemplateFile: !!req.file,
+            templateType: req.body.templateType,
+            hasPlaceholders: !!req.body.placeholders,
+            title: req.body.title
+        });
+        const { templateType, title } = req.body;
+        let placeholders = {};
+        // Parse placeholders if it's a string
+        try {
+            if (typeof req.body.placeholders === 'string') {
+                placeholders = JSON.parse(req.body.placeholders);
+            }
+            else if (typeof req.body.placeholders === 'object') {
+                placeholders = req.body.placeholders;
+            }
+        }
+        catch (parseError) {
+            console.error('Error parsing placeholders:', parseError);
+            placeholders = {};
+        }
         // Validate input
         if (!templateType) {
-            res.status(400).json({ error: 'Template type is required.' });
-            return; // stop execution here
+            console.error('Missing templateType in request:', req.body);
+            res.status(400).json({
+                error: 'Template type is required. Please ensure the template has a valid category or name.'
+            });
+            return;
         }
         if (!placeholders || typeof placeholders !== 'object') {
             res.status(400).json({ error: 'A valid placeholders object is required.' });
-            return; // stop execution here
+            return;
         }
-        // Construct the prompt
-        const userPrompt = `
+        // Check if template ID is provided to fetch from MongoDB
+        let templateId = req.body.templateId;
+        let templateContent = '';
+        if (templateId) {
+            try {
+                // Fetch the template from MongoDB
+                const template = yield DocumentTemplate_1.default.findById(templateId);
+                if (template && template.templateFile) {
+                    // If we have a template file stored in MongoDB
+                    if (template.templateFileType === 'docx') {
+                        // Convert DOCX to text
+                        try {
+                            const result = yield mammoth.extractRawText({ buffer: template.templateFile });
+                            templateContent = result.value;
+                            console.log('[DEBUG] Successfully extracted text from DOCX template');
+                        }
+                        catch (convErr) {
+                            console.error('Error converting DOCX to text:', convErr);
+                        }
+                    }
+                    else if (template.templateFileType === 'pdf') {
+                        // For PDF, we might need additional libraries
+                        // For now, note that we have a PDF but can't extract text directly
+                        console.log('[DEBUG] PDF file detected but text extraction not implemented');
+                    }
+                }
+            }
+            catch (fetchErr) {
+                console.error('Error fetching template from MongoDB:', fetchErr);
+            }
+        }
+        // Check if we have a file uploaded with the request
+        if (req.file && !templateContent) {
+            try {
+                if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+                    // For DOCX files
+                    const result = yield mammoth.extractRawText({ buffer: req.file.buffer });
+                    templateContent = result.value;
+                    console.log('[DEBUG] Successfully extracted text from uploaded DOCX file');
+                }
+                else {
+                    console.log('[DEBUG] Uploaded file type not supported for text extraction:', req.file.mimetype);
+                }
+            }
+            catch (fileErr) {
+                console.error('Error processing uploaded file:', fileErr);
+            }
+        }
+        // Base prompt
+        let userPrompt = `
         You are an AI legal assistant specializing in Nigerian Law.
         Generate a full, legally sound ${templateType} document referencing relevant legislation
         and containing placeholders for the user data.
-
         Here are the placeholders:
         ${Object.keys(placeholders)
             .map((key) => `• {${key}}`)
             .join('\n')}
-
         Do not add disclaimers that contravene local regulations.
         Return the full text, retaining each placeholder in curly braces EXACTLY as typed.
       `;
+        // If we have template content, enhance the prompt
+        if (templateContent) {
+            userPrompt = `
+          You are an AI legal assistant specializing in Nigerian Law.
+          I am providing you with a ${templateType} document template.
+          
+          TEMPLATE CONTENT:
+          ${templateContent}
+          
+          Based on this template, generate a complete and legally sound document that maintains the
+          same structure and legal clauses, but uses these placeholders:
+          ${Object.keys(placeholders)
+                .map((key) => `• {{${key}}}`)
+                .join('\n')}
+          
+          Make sure to keep each placeholder exactly as provided (with double curly braces).
+          Return the full text document that follows Nigerian law and includes all necessary
+          legal provisions for this type of document.
+        `;
+        }
         // Call OpenAI (v4)
         const response = yield openai.chat.completions.create({
-            model: 'gpt-3.5-turbo',
+            model: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
             messages: [
                 {
                     role: 'system',
@@ -72,11 +200,11 @@ ChatGptController.generateDocument = (req, res) => __awaiter(void 0, void 0, voi
                     content: userPrompt,
                 },
             ],
-            max_tokens: 1200,
+            max_tokens: 2000,
             temperature: 0.2,
         });
         const aiMessage = ((_d = (_c = (_b = response.choices) === null || _b === void 0 ? void 0 : _b[0]) === null || _c === void 0 ? void 0 : _c.message) === null || _d === void 0 ? void 0 : _d.content) || '';
-        // Send the AI-generated text (no 'return' before res.json)
+        // Send the AI-generated text
         res.json({
             success: true,
             data: {
@@ -93,8 +221,97 @@ ChatGptController.generateDocument = (req, res) => __awaiter(void 0, void 0, voi
     }
 });
 /**
-* Check if a query is related to Nigerian legal topics
-*/
+ * Improve a document using AI
+ */
+ChatGptController.improveDocument = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _b, _c, _d;
+    try {
+        const { documentContent, templateType, extraPrompt } = req.body;
+        // Validate input
+        if (!documentContent) {
+            res.status(400).json({ error: 'Document content is required.' });
+            return;
+        }
+        // Check if we have a template file
+        let templateFileContent = '';
+        if (req.file) {
+            try {
+                if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+                    // For DOCX files
+                    const result = yield mammoth.extractRawText({ buffer: req.file.buffer });
+                    templateFileContent = result.value;
+                }
+                else if (req.file.mimetype === 'application/pdf') {
+                    // For PDF, note that we'd need additional libraries
+                    console.log('PDF file detected but text extraction not implemented');
+                }
+            }
+            catch (fileErr) {
+                console.error('Error extracting text from template file:', fileErr);
+            }
+        }
+        // Construct the prompt
+        let userPrompt = `
+        You are an AI legal assistant specializing in Nigerian Law.
+        Please improve the following ${templateType || 'legal'} document:
+
+        DOCUMENT TO IMPROVE:
+        ${documentContent}
+        
+        ${extraPrompt || 'Make it more professional, comprehensive, and legally sound.'}
+        
+        Ensure it references relevant Nigerian legislation where appropriate.
+        Maintain all existing sections but enhance them with better language and more complete legal clauses.
+        Return the improved document as plain text.
+      `;
+        // If we also have template file content, include it for reference
+        if (templateFileContent) {
+            userPrompt += `
+          
+          For reference, here is a template document of the same type that you can use for inspiration:
+          
+          REFERENCE TEMPLATE:
+          ${templateFileContent}
+          
+          Do not copy this template directly, but you can use its structure and legal clauses as guidance.
+        `;
+        }
+        // Call OpenAI (v4)
+        const response = yield openai.chat.completions.create({
+            model: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
+            messages: [
+                {
+                    role: 'system',
+                    content: 'You are a helpful Nigerian legal document drafting assistant specializing in document improvement. Provide the complete improved document in plain text.',
+                },
+                {
+                    role: 'user',
+                    content: userPrompt,
+                },
+            ],
+            max_tokens: 2500,
+            temperature: 0.3,
+        });
+        const improvedText = ((_d = (_c = (_b = response.choices) === null || _b === void 0 ? void 0 : _b[0]) === null || _c === void 0 ? void 0 : _c.message) === null || _d === void 0 ? void 0 : _d.content) || '';
+        // Send the improved text
+        res.json({
+            success: true,
+            data: {
+                improvedText,
+            },
+        });
+    }
+    catch (error) {
+        console.error('Error in ChatGptController.improveDocument:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to improve document. See server logs for details.',
+        });
+    }
+});
+/**
+ * Check if a query is related to Nigerian legal topics
+ */
 ChatGptController.checkLegalQuery = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _b, _c, _d, _e;
     try {
@@ -105,7 +322,7 @@ ChatGptController.checkLegalQuery = (req, res) => __awaiter(void 0, void 0, void
                 success: false,
                 error: 'Query is required.'
             });
-            return; // Just return without a value
+            return;
         }
         console.log("API Key available:", !!process.env.OPENAI_API_KEY);
         try {
@@ -131,7 +348,6 @@ ChatGptController.checkLegalQuery = (req, res) => __awaiter(void 0, void 0, void
                 success: true,
                 isLegalQuery: isLegalQueryResult
             });
-            // Don't return the result of res.json()
         }
         catch (openAiError) {
             console.error('OpenAI API Error:', openAiError);
@@ -139,7 +355,6 @@ ChatGptController.checkLegalQuery = (req, res) => __awaiter(void 0, void 0, void
                 success: false,
                 error: 'OpenAI API error: ' + openAiError.message
             });
-            // Don't return the result of res.status().json()
         }
     }
     catch (error) {
@@ -148,7 +363,6 @@ ChatGptController.checkLegalQuery = (req, res) => __awaiter(void 0, void 0, void
             success: false,
             error: 'Server error: ' + (error.message || 'Unknown error')
         });
-        // Don't return the result of res.status().json()
     }
 });
 /**
@@ -198,7 +412,7 @@ ChatGptController.handleChatQuery = (req, res) => __awaiter(void 0, void 0, void
         const formattedHistory = [
             {
                 role: 'system',
-                content: `You are a helpful, friendly Nigerian legal assistant. 
+                content: `You are a helpful, friendly Nigerian legal assistant.
           - Format your responses in a well-structured way with paragraphs and bullet points where appropriate
           - Be conversational but professional
           - Cite relevant Nigerian laws and statutes when applicable

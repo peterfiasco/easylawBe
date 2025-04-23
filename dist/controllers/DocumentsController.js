@@ -79,6 +79,43 @@ DocumentsController.saveDocument = (req, res, next) => {
     });
     saveDoc();
 };
+// PUT /api/documents/:id
+DocumentsController.updateDocument = (req, res, next) => {
+    const updateDoc = () => __awaiter(void 0, void 0, void 0, function* () {
+        var _b, _c;
+        try {
+            const documentId = req.params.id;
+            const { title, content } = req.body;
+            const userId = ((_b = req.user) === null || _b === void 0 ? void 0 : _b._id) || ((_c = req.user) === null || _c === void 0 ? void 0 : _c.user_id);
+            if (!userId) {
+                res.status(401).json({ message: "Authentication required" });
+                return;
+            }
+            // Check if document exists and belongs to user
+            const existingDoc = yield Document_1.default.findOne({ _id: documentId, userId });
+            if (!existingDoc) {
+                res.status(404).json({ message: "Document not found or you don't have permission to update it" });
+                return;
+            }
+            // Update the document
+            const updatedDoc = yield Document_1.default.findByIdAndUpdate(documentId, {
+                title: title || existingDoc.title,
+                content: content || existingDoc.content,
+                updatedAt: new Date()
+            }, { new: true });
+            res.status(200).json({
+                success: true,
+                message: "Document updated successfully",
+                document: updatedDoc,
+            });
+        }
+        catch (error) {
+            console.error("Error updating document:", error);
+            res.status(500).json({ message: "Server error updating document." });
+        }
+    });
+    updateDoc();
+};
 // POST /api/documents/export
 DocumentsController.exportDocument = (req, res, next) => {
     const exportDoc = () => __awaiter(void 0, void 0, void 0, function* () {
@@ -109,21 +146,41 @@ DocumentsController.exportDocument = (req, res, next) => {
                 doc.end();
             }
             else if (format === "word") {
-                const doc = new docx_1.Document({
-                    sections: [
-                        {
-                            children: [
-                                new docx_1.Paragraph({
-                                    children: [new docx_1.TextRun(content)],
-                                }),
-                            ],
-                        },
-                    ],
-                });
-                const buffer = yield docx_1.Packer.toBuffer(doc);
-                res.setHeader("Content-Disposition", `attachment; filename="${title || 'document'}.docx"`);
-                res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-                res.status(200).send(buffer);
+                // Check if content is HTML
+                if (content.trim().startsWith('<!DOCTYPE') || content.trim().startsWith('<html')) {
+                    const htmlToDocx = require('html-to-docx');
+                    // Convert HTML to DOCX buffer
+                    const buffer = yield htmlToDocx(content, {
+                        title: title || 'Document',
+                        margin: {
+                            top: 1440, // 1 inch in twip
+                            right: 1440,
+                            bottom: 1440,
+                            left: 1440
+                        }
+                    });
+                    res.setHeader("Content-Disposition", `attachment; filename="${title || 'document'}.docx"`);
+                    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+                    res.status(200).send(buffer);
+                }
+                else {
+                    // For plain text content, use the existing docx package approach
+                    const doc = new docx_1.Document({
+                        sections: [
+                            {
+                                children: [
+                                    new docx_1.Paragraph({
+                                        children: [new docx_1.TextRun(content)],
+                                    }),
+                                ],
+                            },
+                        ],
+                    });
+                    const buffer = yield docx_1.Packer.toBuffer(doc);
+                    res.setHeader("Content-Disposition", `attachment; filename="${title || 'document'}.docx"`);
+                    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+                    res.status(200).send(buffer);
+                }
             }
             else {
                 res.status(400).json({ message: "Unsupported format" });
@@ -166,6 +223,41 @@ DocumentsController.deleteDocument = (req, res, next) => {
         }
     });
     deleteDoc();
+};
+// Add this method to your DocumentsController class:
+// Update the replacePlaceholders method to follow the same pattern as your other methods
+DocumentsController.replacePlaceholders = (req, res, next) => {
+    // Using a wrapper function to ensure consistent pattern
+    const replacePlaceholders = () => __awaiter(void 0, void 0, void 0, function* () {
+        try {
+            const { content, placeholders } = req.body;
+            if (!content || !placeholders) {
+                res.status(400).json({
+                    success: false,
+                    message: 'Missing content or placeholders in request'
+                });
+                return;
+            }
+            let replacedContent = content;
+            // Replace placeholders in {{placeholder}} format
+            Object.entries(placeholders).forEach(([key, value]) => {
+                const regex = new RegExp(`{{${key}}}`, 'g');
+                replacedContent = replacedContent.replace(regex, value);
+            });
+            res.json({
+                success: true,
+                content: replacedContent
+            });
+        }
+        catch (error) {
+            console.error('Error replacing placeholders:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to replace placeholders'
+            });
+        }
+    });
+    replacePlaceholders();
 };
 // GET /api/documents/:id
 DocumentsController.getDocumentById = (req, res, next) => {

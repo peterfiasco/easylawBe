@@ -38,14 +38,47 @@ const TransactionSchema = new mongoose_1.Schema({
     user_id: {
         type: mongoose_1.default.Schema.Types.ObjectId,
         ref: 'User',
-        required: true
+        required: [true, 'User is required']
     },
-    transactionRef: { type: String, required: true },
-    paymentmethod: { type: String, required: true },
-    status: { type: String, required: true, default: 'pending' },
-    amount: { type: Number, required: true },
-    reversed: { type: Boolean, required: true, default: false },
-    createdAt: { type: Date, default: Date.now }
+    transactionRef: {
+        type: String,
+        required: [true, 'Transaction reference is required'],
+        unique: true
+    },
+    paymentmethod: {
+        type: String,
+        required: [true, 'Payment method is required']
+    },
+    status: {
+        type: String,
+        required: [true, 'Status is required']
+    },
+    amount: {
+        type: Number,
+        required: [true, 'Amount is required']
+    },
+    reversed: {
+        type: Boolean,
+        default: false
+    },
+    consultation_id: {
+        type: mongoose_1.default.Schema.Types.ObjectId,
+        ref: 'Consultation'
+    },
+    created_at: {
+        type: Date,
+        default: Date.now
+    },
+    updated_at: {
+        type: Date,
+        default: Date.now
+    }
 });
-const Transaction = (0, mongoose_1.model)('Transaction', TransactionSchema);
-exports.default = Transaction;
+// Update timestamp on update
+TransactionSchema.pre('save', function (next) {
+    if (this.isModified()) {
+        this.updated_at = new Date();
+    }
+    next();
+});
+exports.default = mongoose_1.default.model('Transaction', TransactionSchema);

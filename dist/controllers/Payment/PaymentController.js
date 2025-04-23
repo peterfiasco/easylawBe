@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.VerifyVpayPayment = void 0;
+exports.RecordPayment = exports.HandleVpayWebhook = exports.VerifyVpayPayment = void 0;
 const response_1 = require("../../utils/response");
 const PaymentValidation_1 = require("./PaymentValidation");
 const VpayService_1 = require("./VpayService");
@@ -34,8 +34,6 @@ const VerifyVpayPayment = (req, res) => __awaiter(void 0, void 0, void 0, functi
         if (!verify || !verify.data || verify.data.paymentstatus !== "paid") {
             return (0, response_1.errorResponse)(res, "Payment not completed", {}, 400);
         }
-        //verify if amount is paid is the amount to be paid, will do this part as it's not yet confirmed
-        // check for the reason which will determine where to check for time
         // Save transaction details
         const transaction = new Transaction_1.default({
             user_id,
@@ -47,33 +45,28 @@ const VerifyVpayPayment = (req, res) => __awaiter(void 0, void 0, void 0, functi
         });
         yield transaction.save();
         // Retrieve consultation details if reason is "consultation"
-        let expectedAmount = 0;
         if (reason === "consultation") {
-            const consult = yield Consultation_1.default.findById(consultation_id);
+            // Retrieve the consultation with its type information
+            const consult = yield Consultation_1.default.findById(consultation_id).populate('consultation_type_id');
             if (!consult) {
                 return (0, response_1.errorResponse)(res, "Consultation not found", {}, 404);
             }
-            // Determine expected amount based on call type
-            expectedAmount =
-                consult.call_type === "video"
-                    ? 200
-                    : consult.call_type === "audio"
-                        ? 100
-                        : 0;
+            if (!consult.consultation_type_id) {
+                return (0, response_1.errorResponse)(res, "Consultation type not found", {}, 404);
+            }
+            // Get the price from the consultation type
+            const expectedAmount = consult.consultation_type_id.price;
             // Compare the expected amount with the paid amount
             if (verify.data.orderamount !== expectedAmount) {
                 return (0, response_1.errorResponse)(res, "Incorrect payment amount", { transaction }, 400);
             }
-            // Object to store user updates
-            const userConsult = {};
-            if (transaction)
-                userConsult.payment_status = transaction.status;
-            if (transaction)
-                userConsult.transaction_id = transaction._id;
-            yield Consultation_1.default.findOneAndUpdate({ user_id }, { $set: userConsult }, { new: true, upsert: true });
+            // Update consultation payment status
+            yield Consultation_1.default.findByIdAndUpdate(consultation_id, {
+                status: "paid",
+                transaction_id: transaction._id
+            }, { new: true });
         }
         return (0, response_1.successResponse)(res, "Payment successful", { transaction }, 200);
-        //what ever the status of the payment is send to db and frontend back
     }
     catch (error) {
         console.log("Payment Verify Error", error);
@@ -81,3 +74,60 @@ const VerifyVpayPayment = (req, res) => __awaiter(void 0, void 0, void 0, functi
     }
 });
 exports.VerifyVpayPayment = VerifyVpayPayment;
+// Add this new controller function
+const HandleVpayWebhook = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        console.log("Webhook received from VPay:", req.body);
+        // Verify the webhook data (you might want to validate a signature)
+        const { transactionRef, status, amount } = req.body;
+        if (!transactionRef) {
+            return (0, response_1.errorResponse)(res, "Invalid webhook data", {}, 400);
+        }
+        // Find related transaction or consultation and update its status
+        // This depends on your application logic
+        // Always respond with 200 to webhooks even if you encounter non-critical errors
+        // This prevents the payment provider from retrying unnecessarily
+        return (0, response_1.successResponse)(res, "Webhook received successfully", {}, 200);
+    }
+    catch (error) {
+        console.error("Webhook handling error:", error);
+        // Still return 200 to prevent retries
+        return (0, response_1.successResponse)(res, "Webhook processed", {}, 200);
+    }
+});
+exports.HandleVpayWebhook = HandleVpayWebhook;
+// Add this new controller function
+const RecordPayment = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { transactionRef, reason, consultation_id, paymentStatus, paymentMethod, amount, metadata } = req.body;
+        const { user_id } = req.user;
+        if (!user_id) {
+            return (0, response_1.errorResponse)(res, "User ID is required", {}, 400);
+        }
+        // Save transaction details directly
+        const transaction = new Transaction_1.default({
+            user_id,
+            transactionRef,
+            paymentmethod: paymentMethod || 'card',
+            status: paymentStatus || 'paid',
+            amount: amount,
+            metadata: metadata || '',
+            reversed: false,
+        });
+        yield transaction.save();
+        // If this is a consultation payment, update the consultation status
+        if (reason === "consultation" && consultation_id) {
+            // Update consultation payment status
+            yield Consultation_1.default.findByIdAndUpdate(consultation_id, {
+                status: "paid",
+                transaction_id: transaction._id
+            }, { new: true });
+        }
+        return (0, response_1.successResponse)(res, "Payment recorded successfully", { transaction }, 200);
+    }
+    catch (error) {
+        console.log("Payment recording error:", error);
+        return (0, response_1.errorResponse)(res, "Internal Server Error", { error: error.message }, 500);
+    }
+});
+exports.RecordPayment = RecordPayment;

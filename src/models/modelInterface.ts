@@ -6,6 +6,7 @@ export interface IUser extends Document {
   email: string;
   company_name: string;
   phone_number: number;
+  phone?: string;
   website: string;
   business_type: string;
   role: string;
@@ -14,6 +15,9 @@ export interface IUser extends Document {
   verified: boolean;
   verification_code: string;
   createdAt: Date;
+  created_at: Date;
+  updated_at: Date;
+  name: string;
 }
 
 export interface ISetting extends Document {
@@ -26,6 +30,7 @@ export interface ISetting extends Document {
   marketing_email: boolean;
   createdAt: Date;
 }
+
 export interface ITransaction extends Document {
   user_id: IUser;
   transactionRef: string;
@@ -35,15 +40,30 @@ export interface ITransaction extends Document {
   reversed: boolean;
   createdAt: Date;
 }
+
+// Update this interface to match our new structure
 export interface IConsultation extends Document {
-  user_id: IUser;
-  call_type: string;
+  user_id: Types.ObjectId | IUser;
+  consultation_type_id: Types.ObjectId | IConsultationType;
   date: Date;
   time: string;
-  transaction_id: ITransaction;
-  payment_status: string;
+  reason: string;
+  status: 'pending' | 'paid' | 'completed' | 'cancelled';
+  transaction_id?: Types.ObjectId | ITransaction;
   createdAt: Date;
 }
+
+// Add the ConsultationType interface
+export interface IConsultationType extends Document {
+  name: string;
+  description: string;
+  call_type: 'video' | 'phone';
+  price: number;
+  duration: number;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export interface IMessage extends Document {
   role: "user" | "assistant";
   content: string;
@@ -52,7 +72,15 @@ export interface IMessage extends Document {
 
 export interface IChat extends Document {
   user_id: IUser;
-  title: string; 
+  title: string;
   messages: IMessage[];
   createdAt: Date;
+}
+
+export function createMessage(role: string, content: string, timestamp: Date = new Date()) {
+  return {
+    role,
+    content,
+    timestamp
+  };
 }

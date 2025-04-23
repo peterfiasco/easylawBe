@@ -12,11 +12,17 @@ export interface UpdateSettingInterface {
     marketing_email: boolean;
 }
 
+// Update the BookConsultationInterface
+
+// Update or add this interface
 export interface BookConsultationInterface {
-    call_type: string;
+    consultation_type_id: string;
     date: Date;
     time: string;
-}
+    reason: string;
+  }
+  
+  
 
 export interface BusinessInterface {
     name: string;
@@ -25,3 +31,4 @@ export interface BusinessInterface {
 export interface AiInterface {
     query: string;
 }
+

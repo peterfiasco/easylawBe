@@ -1,23 +1,43 @@
-import mongoose, { Schema, model } from 'mongoose';
-
+import mongoose, { Schema } from 'mongoose';
 import { IConsultation } from './modelInterface';
 
-const ConsultationSchema = new Schema<IConsultation>({
-    user_id: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true
-    },
-    call_type: { type: String, required: true },
-    date: { type: Date, required: true   },
-    time: { type: String, required: true   },
-    transaction_id: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Transaction'
-    },
-    payment_status: { type: String, required: true , default: 'pending'  },
-    createdAt: { type: Date, default: Date.now }
+const ConsultationSchema: Schema = new Schema({
+  user_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: [true, 'User is required']
+  },
+  consultation_type_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ConsultationType',
+    required: [true, 'Consultation type is required']
+  },
+  date: {
+    type: Date,
+    required: [true, 'Date is required']
+  },
+  time: {
+    type: String,
+    required: [true, 'Time is required']
+  },
+  reason: {
+    type: String,
+    required: [true, 'Reason is required'],
+    trim: true
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'paid', 'completed', 'cancelled'],
+    default: 'pending'
+  },
+  transaction_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Transaction'
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
 });
 
-const Consultation = model<IConsultation>('Consultation', ConsultationSchema);
-export default Consultation;
+export default mongoose.model<IConsultation>('Consultation', ConsultationSchema);

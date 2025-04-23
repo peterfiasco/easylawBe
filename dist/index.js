@@ -18,6 +18,7 @@ const ChatController_1 = require("./controllers/Chat/ChatController");
 const AdminRoutes_1 = __importDefault(require("./routes/Admin/AdminRoutes"));
 const ChatGptRoute_1 = __importDefault(require("./routes/ChatGptRoute"));
 const documents_route_1 = __importDefault(require("./routes/Documents/documents.route"));
+const UserRoutes_1 = __importDefault(require("./routes/User/UserRoutes"));
 const registerRoute = require("./routes/Auth/RegisterRoute");
 const cors = require("cors");
 dotenv_1.default.config();
@@ -33,6 +34,7 @@ const port = process.env.PORT || 5000;
 const server = http_1.default.createServer(app);
 // ✅ Trust the proxy BEFORE middleware
 app.set("trust proxy", 1);
+console.log("Trust proxy is set:", app.get("trust proxy")); // Debug log
 // Connect to database (only once)
 (0, db_1.default)();
 // Configure CORS based on environment
@@ -50,10 +52,32 @@ app.use(cors({
 app.use(express_1.default.json());
 app.use(body_parser_1.default.urlencoded({ extended: true }));
 app.use(body_parser_1.default.json());
-app.use((0, express_rate_limit_1.default)({
-    windowMs: 15 * 60 * 1000,
-    max: 60,
-}));
+// Create different rate limiters for different routes
+const authLimiter = (0, express_rate_limit_1.default)({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 20, // 20 login attempts per 15 minutes
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: "Too many login attempts, please try again after 15 minutes"
+});
+// More generous limiter for general API requests
+const apiLimiter = (0, express_rate_limit_1.default)({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 200, // 200 requests per 15 minutes
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+// Apply rate limiters to specific routes instead of globally
+app.use("/api/auth/login", authLimiter); // Stricter limits on login
+app.use("/api/auth/register", authLimiter); // Stricter limits on register
+app.use("/api", apiLimiter); // More generous limits for other API routes
+// IMPORTANT: Remove the global rate limiter that was causing the issue
+// app.use(
+//   rateLimit({
+//     windowMs: 15 * 60 * 1000,
+//     max: 60,
+//   })
+// );
 app.use("/api/register", registerRoute);
 app.use("/api/auth", auth_route_1.default);
 app.use("/api/dashboard", SettingRoutes_1.default);
@@ -62,18 +86,19 @@ app.use("/api/pay", PaymentRoutes_1.default);
 app.use("/api/admin", AdminRoutes_1.default);
 app.use('/api/chatgpt', ChatGptRoute_1.default);
 app.use("/api/documents", documents_route_1.default);
-// Update the Socket.io CORS settings to match Express CORS settings
+app.use('/api/consult', ConsultationRoutes_1.default);
+app.use('/api/users', UserRoutes_1.default);
 const io = new socket_io_1.Server(server, {
     cors: {
-        origin: allowedOrigins, // Use the same origins as Express
+        origin: '*',
         methods: ['GET', 'POST'],
-        credentials: true, // Set to true to match Express
+        credentials: false,
     },
 });
-// socket middleware
+//socket middleware
 const socketController = new ChatController_1.ChatController(io);
 io.on('connection', (socket) => {
-    console.log("Socket connected:", socket.id);
+    // console.log("socket", socket)
     socketController.initializeConnection(socket);
     socket.on('connect_error', (err) => {
         console.log(`Connection error: ${err.message}`);
@@ -83,5 +108,10 @@ app.get("/", (req, res) => {
     res.json({ message: "Hello from the local server!" });
 });
 // ✅ Local development: Start the Express server only if not in a Vercel environment
-// ✅ Export app for Vercel/Render deployment
+if (process.env.NODE_ENV !== "vercel") {
+    server.listen(port, () => {
+        console.log(`Server is running on port ${port}`);
+    });
+}
+// ✅ Export app for Vercel deployment
 exports.default = app;

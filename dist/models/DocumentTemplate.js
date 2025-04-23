@@ -50,10 +50,13 @@ const FieldSchema = new mongoose_1.Schema({
 const DocumentTemplateSchema = new mongoose_1.Schema({
     name: { type: String, required: true },
     description: { type: String, required: true },
-    // Change from String to ObjectId with ref
     category: { type: mongoose_1.default.Schema.Types.ObjectId, ref: 'DocumentCategory', required: true },
     fields: [FieldSchema],
     isActive: { type: Boolean, default: true },
+    // Changed the templateFile to Buffer type to store binary data
+    templateFile: { type: Buffer, required: true },
+    templateFileName: { type: String, required: true },
+    templateFileType: { type: String, required: true },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
 });

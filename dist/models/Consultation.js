@@ -38,17 +38,38 @@ const ConsultationSchema = new mongoose_1.Schema({
     user_id: {
         type: mongoose_1.default.Schema.Types.ObjectId,
         ref: 'User',
-        required: true
+        required: [true, 'User is required']
     },
-    call_type: { type: String, required: true },
-    date: { type: Date, required: true },
-    time: { type: String, required: true },
+    consultation_type_id: {
+        type: mongoose_1.default.Schema.Types.ObjectId,
+        ref: 'ConsultationType',
+        required: [true, 'Consultation type is required']
+    },
+    date: {
+        type: Date,
+        required: [true, 'Date is required']
+    },
+    time: {
+        type: String,
+        required: [true, 'Time is required']
+    },
+    reason: {
+        type: String,
+        required: [true, 'Reason is required'],
+        trim: true
+    },
+    status: {
+        type: String,
+        enum: ['pending', 'paid', 'completed', 'cancelled'],
+        default: 'pending'
+    },
     transaction_id: {
         type: mongoose_1.default.Schema.Types.ObjectId,
         ref: 'Transaction'
     },
-    payment_status: { type: String, required: true, default: 'pending' },
-    createdAt: { type: Date, default: Date.now }
+    createdAt: {
+        type: Date,
+        default: Date.now
+    }
 });
-const Consultation = (0, mongoose_1.model)('Consultation', ConsultationSchema);
-exports.default = Consultation;
+exports.default = mongoose_1.default.model('Consultation', ConsultationSchema);
