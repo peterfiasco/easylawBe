@@ -3,16 +3,14 @@ import { errorResponse, successResponse } from "../../utils/response";
 import ConsultationType from "../../models/ConsultationType";
 import Consultation from "../../models/Consultation";
 import { CustomRequest } from "../../middleware/authMiddleware";
-import { Document } from "mongoose";
-import { IUser } from "../../models/modelInterface";
+import { IConsultationPopulated } from "../../models/modelInterface";
 
 export class AdminConsultationController {
-  // Get all consultation types
+  // Get all consultation types (plural - matches route)
   static async getConsultationTypes(req: Request, res: Response): Promise<void> {
     try {
       const types = await ConsultationType.find().sort({ created_at: -1 });
       
-      // Make sure we return valid ID for frontend
       const formattedTypes = types.map(type => ({
         id: type._id,
         name: type.name,
@@ -45,7 +43,6 @@ export class AdminConsultationController {
     try {
       const { name, description, call_type, price, duration } = req.body;
       
-      // Validate input
       if (!name || !description || !call_type || !price) {
         return errorResponse(
           res,
@@ -55,7 +52,6 @@ export class AdminConsultationController {
         );
       }
       
-      // Create new consultation type
       const newType = new ConsultationType({
         name,
         description,
@@ -68,7 +64,6 @@ export class AdminConsultationController {
       
       await newType.save();
       
-      // Format response with id field
       const formatted = {
         id: newType._id,
         name: newType.name,
@@ -112,7 +107,6 @@ export class AdminConsultationController {
       
       const { name, description, call_type, price, duration } = req.body;
       
-      // Find and update the consultation type
       const updatedType = await ConsultationType.findByIdAndUpdate(
         id,
         {
@@ -130,7 +124,6 @@ export class AdminConsultationController {
         return errorResponse(res, "Consultation type not found", {}, 404);
       }
       
-      // Format response with id field
       const formatted = {
         id: updatedType._id,
         name: updatedType.name,
@@ -173,7 +166,7 @@ export class AdminConsultationController {
       }
       
       // Check if type is in use
-      const inUse = await Consultation.findOne({ call_type: id });
+      const inUse = await Consultation.findOne({ consultation_type_id: id });
       if (inUse) {
         return errorResponse(
           res,
@@ -183,7 +176,6 @@ export class AdminConsultationController {
         );
       }
       
-      // Delete the consultation type
       const deletedType = await ConsultationType.findByIdAndDelete(id);
       
       if (!deletedType) {
@@ -206,22 +198,21 @@ export class AdminConsultationController {
     }
   }
 
-  // Get all consultation bookings with user details
+  // Get all consultation bookings with user details - 🔧 FIXED TYPE ERRORS
   static async getConsultationBookings(req: CustomRequest, res: Response): Promise<void> {
     try {
       const bookings = await Consultation.find()
-        .populate('user_id', 'first_name last_name email phone_number') 
-        .sort({ createdAt: -1 });
+        .populate('user_id', 'first_name last_name email phone_number')
+        .populate('consultation_type_id')
+        .sort({ createdAt: -1 }) as IConsultationPopulated[];
       
-      // Transform to match frontend expectations based on actual data structure
-      const formattedBookings = bookings.map((booking: any) => {
-        // Skip if user_id is missing
-        if (!booking || !booking.user_id) {
-          console.log('Missing user data:', booking);
+      const formattedBookings = bookings.map((booking) => {
+        // Type guard to ensure user_id is populated
+        if (!booking || !booking.user_id || typeof booking.user_id === 'string') {
+          console.log('Missing or unpopulated user data:', booking);
           return null;
         }
         
-        // Create formatted booking with available fields
         return {
           id: booking._id,
           user: {
@@ -230,17 +221,23 @@ export class AdminConsultationController {
             email: booking.user_id.email,
             phone: booking.user_id.phone_number?.toString() || 'Not provided'
           },
-          consultation_type: {
-            id: booking._id, // Using booking ID since there's no separate type
-            name: `${booking.call_type === 'video' ? 'Video' : 'Phone'} Consultation`,
-            call_type: booking.call_type,
-            price: 0, // Default value since it's not in your current structure
-            duration: 30 // Default value
+          consultation_type: booking.consultation_type_id && typeof booking.consultation_type_id !== 'string' ? {
+            id: booking.consultation_type_id._id,
+            name: booking.consultation_type_id.name,
+            call_type: booking.consultation_type_id.call_type,
+            price: booking.consultation_type_id.price,
+            duration: booking.consultation_type_id.duration
+          } : {
+            id: 'unknown',
+            name: 'Unknown Type',
+            call_type: 'phone',
+            price: 0,
+            duration: 30
           },
           date: booking.date,
           time: booking.time,
           reason: booking.reason || 'No reason provided',
-          status: booking.status || booking.payment_status || 'pending',
+          status: booking.status || 'pending',
           created_at: booking.createdAt
         };
       }).filter(booking => booking !== null);
@@ -253,6 +250,158 @@ export class AdminConsultationController {
       );
     } catch (error: any) {
       console.error('Error in getConsultationBookings:', error);
+      return errorResponse(
+        res,
+        "Internal Server Error",
+        { error: error.message },
+        500
+      );
+    }
+  }
+
+  // 🔧 FIXED TYPE ERRORS - Send consultation confirmation
+  static async sendConsultationConfirmation(req: CustomRequest, res: Response): Promise<void> {
+    try {
+      const { consultationId } = req.params;
+      
+      const consultation = await Consultation.findById(consultationId)
+        .populate('user_id', 'first_name last_name email')
+        .populate('consultation_type_id') as IConsultationPopulated | null;
+      
+      if (!consultation) {
+        return errorResponse(res, "Consultation not found", {}, 404);
+      }
+      
+      // Type guard to ensure proper population
+      if (!consultation.user_id || typeof consultation.user_id === 'string' || 
+          !consultation.consultation_type_id || typeof consultation.consultation_type_id === 'string') {
+        return errorResponse(res, "Consultation data not properly populated", {}, 500);
+      }
+      
+      // Send confirmation email (implement email service)
+      const emailData = {
+        to: consultation.user_id.email,
+        subject: "Consultation Booking Confirmation - EasyLaw Solutions",
+        template: "consultation_confirmation",
+        data: {
+          userName: `${consultation.user_id.first_name} ${consultation.user_id.last_name}`,
+          consultationType: consultation.consultation_type_id.name,
+          date: new Date(consultation.date).toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          }),
+          time: consultation.time,
+          duration: consultation.consultation_type_id.duration,
+          price: consultation.consultation_type_id.price,
+          callType: consultation.consultation_type_id.call_type,
+          reason: consultation.reason
+        }
+      };
+      
+      // TODO: Implement actual email sending
+      console.log('Email data prepared:', emailData);
+      
+      return successResponse(
+        res,
+        "Confirmation email prepared successfully",
+        {},
+        200
+      );
+    } catch (error: any) {
+      console.error('Error sending consultation confirmation:', error);
+      return errorResponse(
+        res,
+        "Failed to send confirmation email",
+        { error: error.message },
+        500
+      );
+    }
+  }
+
+  // Add this method to the AdminConsultationController class
+  static async deleteConsultationBooking(req: CustomRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      
+      if (!id) {
+        return errorResponse(
+          res,
+          "Missing ID parameter",
+          { error: "Consultation booking ID is required" },
+          400
+        );
+      }
+      
+      const deletedBooking = await Consultation.findByIdAndDelete(id);
+      
+      if (!deletedBooking) {
+        return errorResponse(res, "Consultation booking not found", {}, 404);
+      }
+      
+      return successResponse(
+        res,
+        "Consultation booking deleted successfully",
+        { deletedId: id },
+        200
+      );
+    } catch (error: any) {
+      console.error('Error deleting consultation booking:', error);
+      return errorResponse(
+        res,
+        "Internal Server Error",
+        { error: error.message },
+        500
+      );
+    }
+  }
+
+  // Also add a method to cancel/update status
+  static async updateConsultationStatus(req: CustomRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+      
+      if (!id) {
+        return errorResponse(
+          res,
+          "Missing ID parameter",
+          { error: "Consultation booking ID is required" },
+          400
+        );
+      }
+      
+      if (!status || !['pending', 'paid', 'completed', 'cancelled'].includes(status)) {
+        return errorResponse(
+          res,
+          "Invalid status",
+          { error: "Status must be one of: pending, paid, completed, cancelled" },
+          400
+        );
+      }
+      
+      const updatedBooking = await Consultation.findByIdAndUpdate(
+        id,
+        { status, updated_at: new Date() },
+        { new: true, runValidators: true }
+      );
+      
+      if (!updatedBooking) {
+        return errorResponse(res, "Consultation booking not found", {}, 404);
+      }
+      
+      return successResponse(
+        res,
+        "Consultation status updated successfully",
+        {
+          id: updatedBooking._id,
+          status: updatedBooking.status
+        },
+        200
+      );
+    } catch (error: any) {
+      console.error('Error updating consultation status:', error);
       return errorResponse(
         res,
         "Internal Server Error",

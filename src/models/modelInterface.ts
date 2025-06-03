@@ -1,4 +1,5 @@
 import { Document, Types } from "mongoose";
+import mongoose from "mongoose";
 
 export interface IUser extends Document {
   first_name: string;
@@ -51,6 +52,7 @@ export interface IConsultation extends Document {
   status: 'pending' | 'paid' | 'completed' | 'cancelled';
   transaction_id?: Types.ObjectId | ITransaction;
   createdAt: Date;
+  updated_at: Date;
 }
 
 // Add the ConsultationType interface
@@ -61,6 +63,13 @@ export interface IConsultationType extends Document {
   price: number;
   duration: number;
   created_at: Date;
+  updated_at: Date;
+}
+
+// 🆕 Add populated consultation interface for proper typing
+export interface IConsultationPopulated extends Omit<IConsultation, 'user_id' | 'consultation_type_id'> {
+  user_id: IUser;
+  consultation_type_id: IConsultationType;
   updated_at: Date;
 }
 
@@ -75,6 +84,15 @@ export interface IChat extends Document {
   title: string;
   messages: IMessage[];
   createdAt: Date;
+}
+
+export interface IDocument extends Document {
+  title: string;
+  content: string;
+  userId: Types.ObjectId; // Changed from mongoose.Schema.Types.ObjectId
+  createdAt: Date;
+  updatedAt?: Date;
+  format?: string;
 }
 
 export function createMessage(role: string, content: string, timestamp: Date = new Date()) {

@@ -187,38 +187,57 @@ export class UserSubscriptionController {
       : userId;
     
     try {
-      // Find the user's active subscription
+      // Find the user's active subscription with populated plan details
       const subscription = await UserSubscription.findOne({
         user_id: userObjectId,
         status: 'active',
         end_date: { $gt: new Date() } // Not expired
       }).populate('plan_id');
       
+      console.log('🔍 Subscription query result:', {
+        userId: userObjectId,
+        foundSubscription: !!subscription,
+        subscriptionStatus: subscription?.status,
+        endDate: subscription?.end_date,
+        planDetails: subscription?.plan_id
+      });
+      
       if (!subscription) {
-        // Remove the "return" keyword here
+        // ✅ FIX: Return consistent structure for no subscription
         res.status(200).json({
           success: true,
           data: {
             isSubscribed: false,
             plan: null,
-            expiresAt: null
+            expiresAt: null,
+            planType: null,
+            planName: null,
+            metadata: {}
           }
         });
-        return; // Just return without returning the response object
+        return;
       }
       
-      // Return subscription details
+      // ✅ FIX: Enhanced response with better plan information
+      const planData = subscription.plan_id as any;
+      
       res.status(200).json({
         success: true,
         data: {
           isSubscribed: true,
-          plan: subscription.plan_id,
+          plan: planData,
           expiresAt: subscription.end_date,
-          metadata: subscription.metadata || {} // Include metadata in response
+          planType: planData?.type || planData?.name?.toLowerCase().replace(' ', '-') || 'unknown',
+          planName: planData?.name || 'Unknown Plan',
+          metadata: subscription.metadata || {},
+          subscriptionId: subscription._id,
+          startDate: subscription.start_date,
+          amountPaid: subscription.amount_paid,
+          status: subscription.status
         }
       });
     } catch (error) {
-      console.error('Error fetching user subscription:', error);
+      console.error('❌ Error fetching user subscription:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to retrieve subscription information',

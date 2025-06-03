@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { DocumentsController } from "../../controllers/DocumentsController";
+import { ChatGptController } from "../../controllers/ChatGptController"; // ✅ ADD: Import ChatGPT controller
 import { authMiddleware } from "../../middleware/authMiddleware";
 // Import the models
 import DocumentTemplate from "../../models/DocumentTemplate";
@@ -27,7 +28,6 @@ router.use(authMiddleware);
 // IMPORTANT: Define specific routes BEFORE wildcard routes
 // Template routes must come before /:id route
 router.get("/templates", (req: Request, res: Response) => {
-  // Use a non-async wrapper to satisfy TypeScript
   DocumentTemplate.find({ isActive: true })
     .populate('category')
     .then(templates => {
@@ -64,7 +64,6 @@ router.get("/templates/:id/document", (req: Request, res: Response) => {
         return res.status(404).json({ success: false, message: 'Template not found' });
       }
       
-      // Check if template has a templateFile field
       if (template.templateFile) {
         return res.json({ success: true, data: { content: template.templateFile } });
       } else {
@@ -81,7 +80,6 @@ router.get("/templates/:id/document", (req: Request, res: Response) => {
 });
 
 router.get("/template-categories", (req: Request, res: Response) => {
-  // Use a non-async wrapper to satisfy TypeScript
   DocumentCategory.find({ isActive: true })
     .then(categories => {
       console.log(`Found ${categories.length} categories`);
@@ -95,12 +93,18 @@ router.get("/template-categories", (req: Request, res: Response) => {
 
 // Standard document routes
 router.get("/", DocumentsController.getAllDocuments);
-router.post("/", DocumentsController.saveDocument); // Changed from /save to / for RESTful convention
-router.put("/:id", DocumentsController.updateDocument); // Add update route
-router.post("/export", DocumentsController.exportDocument);
-router.post("/replace-placeholders", DocumentsController.replacePlaceholders); // Use the controller method
+router.post("/", DocumentsController.saveDocument);
+router.put("/:id", DocumentsController.updateDocument);
+router.post("/export", DocumentsController.exportDocument); // ✅ ADD: Export route
+router.post("/replace-placeholders", DocumentsController.replacePlaceholders);
 
-// Add this new route to download templates for regular logged-in users
+// ✅ ADD: ChatGPT document generation with file upload support
+router.post("/generate", 
+  ChatGptController.uploadMiddleware, 
+  ChatGptController.generateDocument
+);
+
+// Template download route
 router.get("/templates/:id/download", (req: Request, res: Response) => {
   DocumentTemplate.findById(req.params.id)
     .then(template => {
@@ -108,10 +112,7 @@ router.get("/templates/:id/download", (req: Request, res: Response) => {
         return res.status(404).json({ success: false, message: 'Template not found' });
       }
       
-      // If the template has a file, send it as a response
       if (template.templateFile) {
-        // You might need to handle the file format based on your storage mechanism
-        // If it's stored as a binary buffer:
         return res.send(template.templateFile);
       } else {
         return res.status(404).json({
@@ -126,17 +127,9 @@ router.get("/templates/:id/download", (req: Request, res: Response) => {
     });
 });
 
-
-// AI improvement route (pass-through to AI service)
+// AI improvement route
 router.post("/improve", (req: Request, res: Response) => {
-  // This just forwards to the ChatGPT controller, but keeping it in the documents namespace
-  // Forward to the ChatGPT controller or implement here
   console.log("Document improvement request received:", req.body);
-  
-  // If you have a separate controller, you can forward to it:
-  // return ChatGPTController.improveDocument(req, res);
-  
-  // For now, just pass through the request to the chatgpt endpoint
   res.redirect(307, '/chatgpt/improve-document');
 });
 

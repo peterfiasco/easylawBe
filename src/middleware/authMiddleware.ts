@@ -9,7 +9,7 @@ dotenv.config();
 
 // Define our payload type for JWT
 interface CustomJwtPayload {
-  _id: string | mongoose.Types.ObjectId;
+  _id?: string | mongoose.Types.ObjectId;
   user_id?: string | mongoose.Types.ObjectId;
   role: string;
   email: string;
@@ -78,8 +78,29 @@ export const authMiddleware = (
       email: decoded.email
     }, null, 2));
     
+    // 🔧 FIX: Handle both _id and user_id formats
+    let userId = decoded._id || decoded.user_id;
+    
+    if (!userId) {
+      console.error("No user ID found in token (neither _id nor user_id)");
+      res.status(401).json({ message: "Invalid token: missing user ID" });
+      return;
+    }
+    
+    // 🔧 FIX: Normalize the user object to always have _id
+    const normalizedUser = {
+      _id: userId,
+      user_id: userId, // Keep both for compatibility
+      role: decoded.role,
+      email: decoded.email,
+      iat: decoded.iat,
+      exp: decoded.exp
+    };
+    
+    console.log("Normalized user object:", normalizedUser);
+    
     // Set user to request object - use type assertion to avoid type checking
-    (req as CustomRequest).user = decoded;
+    (req as CustomRequest).user = normalizedUser;
     
     next();
   } catch (error) {

@@ -1,13 +1,26 @@
 import { Router } from 'express';
 import { ChatGptController } from '../controllers/ChatGptController';
+import { UserMiddleware } from '../middleware/authMiddleware';
 
 const router = Router();
 
-// POST /api/chatgpt/generate
-// Passing the static arrow function directly is fine now
-router.post('/generate', ChatGptController.generateDocument);
-// Add this new route
-router.post('/check-legal-query', ChatGptController.checkLegalQuery);
+// ✅ FIX: Add multer middleware to handle FormData
+router.post('/generate', 
+  UserMiddleware, 
+  ChatGptController.uploadMiddleware,  // Add this line
+  ChatGptController.generateDocument
+);
 
+router.post('/improve-document', 
+  UserMiddleware, 
+  ChatGptController.uploadMiddleware,  // Add this line  
+  ChatGptController.improveDocument
+);
+
+router.post('/check-legal-query', UserMiddleware, ChatGptController.checkLegalQuery);
+router.post('/chat', UserMiddleware, ChatGptController.handleChatQuery);
+
+// ✅ ADD: Template verification route
+router.get('/verify-template/:templateId', UserMiddleware, ChatGptController.verifyTemplateContent);
 
 export default router;

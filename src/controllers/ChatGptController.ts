@@ -1,418 +1,842 @@
-import { RequestHandler } from 'express';
+import { Request, Response } from 'express';
 import OpenAI from 'openai';
 import DocumentTemplate from '../models/DocumentTemplate';
 import * as mammoth from 'mammoth';
+import multer from 'multer';
 
-/** 
- * Make sure openai@4.x is installed: 
- *   npm install openai@latest 
- * package.json should show e.g. "openai": "^4.89.0" 
- * 
- * Also install:
- *   npm install mammoth --save
- * For converting docx to text
- */
+// Configure multer for handling FormData
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+    fieldSize: 1024 * 1024
+  }
+});
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
 export class ChatGptController {
+  // Helper method to truncate content while preserving structure
+  private static truncateContent(content: string, maxLength: number = 15000): string {
+  if (content.length <= maxLength) return content;
+  
+  console.log(`⚠️ [TEMPLATE DEBUG] Truncating content from ${content.length} to ${maxLength} characters`);
+  
+  // Try to truncate at a paragraph boundary
+  const truncated = content.substring(0, maxLength);
+  const lastParagraph = truncated.lastIndexOf('\n\n');
+  
+  if (lastParagraph > maxLength * 0.8) {
+    return truncated.substring(0, lastParagraph) + '\n\n[Content truncated for processing]';
+  }
+  
+  return truncated + '\n\n[Content truncated for processing]';
+}
+
+  // Helper method to get optimal model based on content length
+  private static getOptimalModel(contentLength: number): string {
+  // Estimate tokens (roughly 4 characters per token)
+  const estimatedTokens = Math.ceil(contentLength / 4);
+  
+  console.log(`📊 [TOKEN DEBUG] Content length: ${contentLength}, Estimated tokens: ${estimatedTokens}`);
+  
+  // Use different models based on content size
+  if (estimatedTokens > 4000) {
+    return "gpt-4o"; // 128k context
+  } else if (estimatedTokens > 2000) {
+    return "gpt-4";  // 8k context  
+  } else {
+    return "gpt-4o-mini"; // 128k context
+  }
+}
+
   /**
-   * Generate a legal document with dummy placeholders for privacy.
-   * The 'placeholders' object in the request body might look like:
-   * { EmployerName: "DummyEmployer", EmployeeName: "DummyEmployee", ... }
+   * Generate a legal document with enhanced template debugging
    */
-  public static generateDocument: RequestHandler = async (req, res) => {
+  // ✅ UPDATE: Fix the generateDocument method with content management
+  public static generateDocument = async (req: Request, res: Response): Promise<void> => {
     try {
-      console.log('[DEBUG] Generate Document Request:', {
+      console.log('🚀 [TEMPLATE DEBUG] Generate Document Request Started:', {
         hasTemplateFile: !!req.file,
+        bodyKeys: Object.keys(req.body),
         templateType: req.body.templateType,
         hasPlaceholders: !!req.body.placeholders,
-        title: req.body.title
+        title: req.body.title,
+        templateId: req.body.templateId,
+        timestamp: new Date().toISOString()
       });
       
-      const { templateType, title } = req.body;
-      let placeholders = {};
-
-      // Parse placeholders if it's a string
+      // Extract fields from FormData
+      const templateType = req.body.templateType || req.body.templateCategory;
+      const title = req.body.title || req.body.documentTitle;
+      const templateId = req.body.templateId;
+      
+      // ✅ CHANGE: Parse placeholders but only extract FIELD NAMES, not values
+      let placeholderFields = {};
       try {
         if (typeof req.body.placeholders === 'string') {
-          placeholders = JSON.parse(req.body.placeholders);
-        } else if (typeof req.body.placeholders === 'object') {
-          placeholders = req.body.placeholders;
+          const userPlaceholders = JSON.parse(req.body.placeholders);
+          // Only extract field names/keys, not the user values
+          Object.keys(userPlaceholders).forEach(key => {
+            placeholderFields[key] = `{{${key}}}`; // Create placeholder format
+          });
         }
       } catch (parseError) {
-        console.error('Error parsing placeholders:', parseError);
-        placeholders = {};
+        console.error('❌ [TEMPLATE DEBUG] Error parsing placeholders:', parseError);
+        placeholderFields = {};
       }
 
-      // Validate input
-      if (!templateType) {
-        console.error('Missing templateType in request:', req.body);
-        res.status(400).json({ 
-          error: 'Template type is required. Please ensure the template has a valid category or name.'
-        });
-        return;
-      }
-
-      if (!placeholders || typeof placeholders !== 'object') {
-        res.status(400).json({ error: 'A valid placeholders object is required.' });
-        return;
-      }
-
-      // Check if template ID is provided to fetch from MongoDB
-      let templateId = req.body.templateId;
-      let templateContent = '';
+      // Get template content
+      let finalTemplateContent = '';
+      let templateInfo = {
+        source: 'none',
+        contentLength: 0,
+        fileName: null,
+        fileType: null,
+        processingMethod: null
+      };
 
       if (templateId) {
         try {
-          // Fetch the template from MongoDB
+          console.log('🔍 [TEMPLATE DEBUG] Fetching template from MongoDB:', {
+            templateId,
+            timestamp: new Date().toISOString()
+          });
+          
           const template = await DocumentTemplate.findById(templateId);
           
-          if (template && template.templateFile) {
-            // If we have a template file stored in MongoDB
-            if (template.templateFileType === 'docx') {
-              // Convert DOCX to text
-              try {
-                const result = await mammoth.extractRawText({ buffer: template.templateFile });
-                templateContent = result.value;
-                console.log('[DEBUG] Successfully extracted text from DOCX template');
-              } catch (convErr) {
-                console.error('Error converting DOCX to text:', convErr);
+          if (template) {
+            console.log('📄 [TEMPLATE DEBUG] Template found in database:', {
+              templateId: template._id,
+              templateName: template.name,
+              hasTemplateFile: !!template.templateFile,
+              templateFileType: template.templateFileType,
+              templateFileSize: template.templateFile ? template.templateFile.length : 0,
+              category: template.category,
+              fields: template.fields?.length || 0
+            });
+            
+            if (template.templateFile) {
+              templateInfo.source = 'mongodb';
+              templateInfo.fileName = template.name;
+              templateInfo.fileType = template.templateFileType;
+              
+              if (template.templateFileType === 'docx') {
+                console.log('📝 [TEMPLATE DEBUG] Processing DOCX template from MongoDB...');
+                templateInfo.processingMethod = 'mammoth-docx';
+                
+                try {
+                  const result = await mammoth.extractRawText({ 
+                    buffer: template.templateFile
+                  });
+                  
+                  finalTemplateContent = result.value;
+                  templateInfo.contentLength = finalTemplateContent.length;
+                  
+                  console.log('✅ [TEMPLATE DEBUG] DOCX processed successfully:', {
+                    originalLength: template.templateFile.length,
+                    extractedLength: finalTemplateContent.length,
+                    preview: finalTemplateContent.substring(0, 200) + '...'
+                  });
+                } catch (mammothError) {
+                  console.error('❌ [TEMPLATE DEBUG] Mammoth processing failed:', mammothError);
+                  throw new Error(`Failed to process DOCX template: ${mammothError.message}`);
+                }
+              } else {
+                console.log('📝 [TEMPLATE DEBUG] Processing text template from MongoDB...');
+                templateInfo.processingMethod = 'direct-text';
+                finalTemplateContent = template.templateFile.toString('utf-8');
+                templateInfo.contentLength = finalTemplateContent.length;
               }
-            } else if (template.templateFileType === 'pdf') {
-              // For PDF, we might need additional libraries
-              // For now, note that we have a PDF but can't extract text directly
-              console.log('[DEBUG] PDF file detected but text extraction not implemented');
+            } else {
+              console.warn('⚠️ [TEMPLATE DEBUG] Template found but no templateFile field');
+              throw new Error('Template found but contains no content');
             }
-          }
-        } catch (fetchErr) {
-          console.error('Error fetching template from MongoDB:', fetchErr);
-        }
-      }
-
-      // Check if we have a file uploaded with the request
-      if (req.file && !templateContent) {
-        try {
-          if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-            // For DOCX files
-            const result = await mammoth.extractRawText({ buffer: req.file.buffer });
-            templateContent = result.value;
-            console.log('[DEBUG] Successfully extracted text from uploaded DOCX file');
           } else {
-            console.log('[DEBUG] Uploaded file type not supported for text extraction:', req.file.mimetype);
+            console.error('❌ [TEMPLATE DEBUG] Template not found in database:', templateId);
+            throw new Error('Template not found');
           }
-        } catch (fileErr) {
-          console.error('Error processing uploaded file:', fileErr);
+        } catch (dbError) {
+          console.error('❌ [TEMPLATE DEBUG] Database error:', dbError);
+          throw new Error(`Database error: ${dbError.message}`);
         }
-      }
-
-      // Base prompt
-      let userPrompt = `
-        You are an AI legal assistant specializing in Nigerian Law.
-        Generate a full, legally sound ${templateType} document referencing relevant legislation
-        and containing placeholders for the user data.
-        Here are the placeholders:
-        ${Object.keys(placeholders)
-          .map((key) => `• {${key}}`)
-          .join('\n')}
-        Do not add disclaimers that contravene local regulations.
-        Return the full text, retaining each placeholder in curly braces EXACTLY as typed.
-      `;
-
-      // If we have template content, enhance the prompt
-      if (templateContent) {
-        userPrompt = `
-          You are an AI legal assistant specializing in Nigerian Law.
-          I am providing you with a ${templateType} document template.
+      } else if (req.file) {
+        console.log('📁 [TEMPLATE DEBUG] Processing uploaded file:', {
+          filename: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size
+        });
+        
+        templateInfo.source = 'upload';
+        templateInfo.fileName = req.file.originalname;
+        templateInfo.fileType = req.file.mimetype;
+        
+        if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+          console.log('📝 [TEMPLATE DEBUG] Processing uploaded DOCX file...');
+          templateInfo.processingMethod = 'mammoth-upload';
           
-          TEMPLATE CONTENT:
-          ${templateContent}
-          
-          Based on this template, generate a complete and legally sound document that maintains the
-          same structure and legal clauses, but uses these placeholders:
-          ${Object.keys(placeholders)
-            .map((key) => `• {{${key}}}`)
-            .join('\n')}
-          
-          Make sure to keep each placeholder exactly as provided (with double curly braces).
-          Return the full text document that follows Nigerian law and includes all necessary
-          legal provisions for this type of document.
-        `;
-      }
-
-      // Call OpenAI (v4)
-      const response = await openai.chat.completions.create({
-        model: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are a helpful Nigerian legal document drafting assistant. Provide the answer in plain text.',
-          },
-          {
-            role: 'user',
-            content: userPrompt,
-          },
-        ],
-        max_tokens: 2000,
-        temperature: 0.2,
-      });
-
-      const aiMessage = response.choices?.[0]?.message?.content || '';
-
-      // Send the AI-generated text
-      res.json({
-        success: true,
-        data: {
-          generatedText: aiMessage,
-        },
-      });
-    } catch (error: any) {
-      console.error('Error in ChatGptController.generateDocument:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to generate document. See server logs for details.',
-      });
-    }
-  };
-
-  /**
-   * Improve a document using AI
-   */
-  public static improveDocument: RequestHandler = async (req, res) => {
-    try {
-      const { documentContent, templateType, extraPrompt } = req.body;
-      
-      // Validate input
-      if (!documentContent) {
-        res.status(400).json({ error: 'Document content is required.' });
-        return;
-      }
-
-      // Check if we have a template file
-      let templateFileContent = '';
-      if (req.file) {
-        try {
-          if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-            // For DOCX files
+          try {
             const result = await mammoth.extractRawText({ buffer: req.file.buffer });
-            templateFileContent = result.value;
-          } else if (req.file.mimetype === 'application/pdf') {
-            // For PDF, note that we'd need additional libraries
-            console.log('PDF file detected but text extraction not implemented');
+            finalTemplateContent = result.value;
+            templateInfo.contentLength = finalTemplateContent.length;
+            
+            console.log('✅ [TEMPLATE DEBUG] Uploaded DOCX processed:', {
+              extractedLength: finalTemplateContent.length,
+              preview: finalTemplateContent.substring(0, 200) + '...'
+            });
+          } catch (mammothError) {
+            console.error('❌ [TEMPLATE DEBUG] Failed to process uploaded DOCX:', mammothError);
+            throw new Error(`Failed to process uploaded DOCX: ${mammothError.message}`);
           }
-        } catch (fileErr) {
-          console.error('Error extracting text from template file:', fileErr);
+        } else {
+          console.log('📝 [TEMPLATE DEBUG] Processing uploaded text file...');
+          templateInfo.processingMethod = 'buffer-text';
+          finalTemplateContent = req.file.buffer.toString('utf-8');
+          templateInfo.contentLength = finalTemplateContent.length;
         }
+      } else {
+        console.error('❌ [TEMPLATE DEBUG] No template provided');
+        res.status(400).json({
+          success: false,
+          message: 'No template provided (either templateId or file upload required)',
+          error: 'MISSING_TEMPLATE'
+        });
+        return;
       }
 
-      // Construct the prompt
-      let userPrompt = `
-        You are an AI legal assistant specializing in Nigerian Law.
-        Please improve the following ${templateType || 'legal'} document:
-
-        DOCUMENT TO IMPROVE:
-        ${documentContent}
-        
-        ${extraPrompt || 'Make it more professional, comprehensive, and legally sound.'}
-        
-        Ensure it references relevant Nigerian legislation where appropriate.
-        Maintain all existing sections but enhance them with better language and more complete legal clauses.
-        Return the improved document as plain text.
-      `;
-
-      // If we also have template file content, include it for reference
-      if (templateFileContent) {
-        userPrompt += `
-          
-          For reference, here is a template document of the same type that you can use for inspiration:
-          
-          REFERENCE TEMPLATE:
-          ${templateFileContent}
-          
-          Do not copy this template directly, but you can use its structure and legal clauses as guidance.
-        `;
+      // Validate template content
+      if (!finalTemplateContent || finalTemplateContent.trim().length === 0) {
+        console.error('❌ [TEMPLATE DEBUG] Empty template content');
+        res.status(400).json({
+          success: false,
+          message: 'Template content is empty',
+          error: 'EMPTY_TEMPLATE',
+          templateInfo
+        });
+        return;
       }
 
-      // Call OpenAI (v4)
-      const response = await openai.chat.completions.create({
-        model: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are a helpful Nigerian legal document drafting assistant specializing in document improvement. Provide the complete improved document in plain text.',
-          },
-          {
-            role: 'user',
-            content: userPrompt,
-          },
-        ],
-        max_tokens: 2500,
-        temperature: 0.3,
+      // ✅ FIX: Content management
+      const maxContentLength = 30000;
+      let processedContent = finalTemplateContent;
+      
+      if (finalTemplateContent.length > maxContentLength) {
+        processedContent = ChatGptController.truncateContent(finalTemplateContent, maxContentLength);
+        console.log(`📏 [CONTENT DEBUG] Content truncated: ${finalTemplateContent.length} → ${processedContent.length}`);
+      }
+
+      const optimalModel = ChatGptController.getOptimalModel(processedContent.length);
+
+      console.log('📊 [TEMPLATE DEBUG] Final template processing summary:', {
+        ...templateInfo,
+        placeholdersCount: Object.keys(placeholderFields).length,
+        placeholderKeys: Object.keys(placeholderFields),
+        hasValidContent: processedContent.length > 0,
+        selectedModel: optimalModel,
+        contentTruncated: processedContent.length < finalTemplateContent.length
       });
 
-      const improvedText = response.choices?.[0]?.message?.content || '';
+      // ✅ FIX: Updated system prompt - Generate template with placeholders, NO user data
+      const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        {
+          role: "system",
+          content: `You are a professional legal document generator specializing in Nigerian law. Your task is to:
 
-      // Send the improved text
+1. Generate a complete, professional legal document template based on the provided template
+2. Create intelligent placeholders for user information using double curly braces: {{Field Name}}
+3. Ensure proper legal language and formatting for Nigerian jurisdiction
+4. Maintain document structure and add necessary legal clauses
+5. Use plain text formatting without markdown symbols (**, *, etc.)
+6. Use CAPS for titles and headers, not markdown formatting
+7. Create placeholders that correspond to the form fields provided
+
+Document Type: ${templateType || 'Legal Document'}
+Available Form Fields: ${Object.keys(placeholderFields).join(', ')}
+
+IMPORTANT: Do NOT include any actual personal information. Only create placeholders in {{Field Name}} format where user information should go.
+
+Output: Return ONLY the completed document template with intelligent placeholders.`
+        },
+        {
+          role: "user", 
+          content: `Create a complete ${templateType || 'legal'} document template using this base template:
+
+TEMPLATE CONTENT:
+${processedContent}
+
+REQUIRED PLACEHOLDERS TO INCLUDE:
+${Object.keys(placeholderFields).map(field => `{{${field}}}`).join('\n')}
+
+DOCUMENT TITLE: ${title || 'Legal Document'}
+
+Generate a complete, professional document template with intelligent placeholders for all the required fields. Use {{Field Name}} format for placeholders. Do not include any actual personal information - only create placeholders where user information should go. Use plain text only - no markdown formatting like ** or * symbols. Use CAPS for headers and proper paragraph spacing.
+
+Ensure the document is legally sound for Nigerian jurisdiction and includes all necessary clauses and sections.`
+        }
+      ];
+
+      console.log('🤖 [OPENAI DEBUG] Sending template generation request (NO USER DATA):', {
+        messagesCount: messages.length,
+        templateLength: processedContent.length,
+        placeholderFieldsCount: Object.keys(placeholderFields).length,
+        fieldsToReplace: Object.keys(placeholderFields),
+        model: optimalModel
+      });
+
+      // ✅ FIX: Update the OpenAI call with proper token limits
+const completion = await openai.chat.completions.create({
+  model: optimalModel,
+  messages: messages,
+  max_completion_tokens: Math.min(2000, optimalModel.includes('gpt-4o') ? 4000 : 1500), // Reduced limits
+  temperature: 0.3
+});
+
+
+      const generatedContent = completion.choices[0]?.message?.content;
+
+      if (!generatedContent) {
+        console.error('❌ [OPENAI DEBUG] No content generated');
+        throw new Error('No content generated by OpenAI');
+      }
+
+      console.log('✅ [OPENAI DEBUG] Template generated successfully:', {
+        originalLength: finalTemplateContent.length,
+        generatedLength: generatedContent.length,
+        tokensUsed: completion.usage?.total_tokens || 0,
+        placeholdersInResult: (generatedContent.match(/\{\{[^}]+\}\}/g) || []).length,
+        model: optimalModel
+      });
+
       res.json({
         success: true,
+        message: 'Document template generated successfully',
         data: {
-          improvedText,
-        },
+          generatedDocument: generatedContent,
+          templateInfo,
+          metadata: {
+            title: title || 'Generated Legal Document',
+            templateType: templateType || 'General',
+            generatedAt: new Date().toISOString(),
+            tokensUsed: completion.usage?.total_tokens || 0,
+            placeholderFields: Object.keys(placeholderFields),
+            placeholdersInDocument: (generatedContent.match(/\{\{[^}]+\}\}/g) || []).length,
+            model: optimalModel,
+            contentTruncated: processedContent.length < finalTemplateContent.length
+          }
+        }
       });
+
     } catch (error: any) {
-      console.error('Error in ChatGptController.improveDocument:', error);
+      console.error('❌ [TEMPLATE DEBUG] Document generation failed:', {
+        error: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString()
+      });
+
       res.status(500).json({
         success: false,
-        error: 'Failed to improve document. See server logs for details.',
+        message: 'Failed to generate document template',
+        error: error.message,
+        details: process.env.NODE_ENV === 'development' ? {
+          stack: error.stack,
+          timestamp: new Date().toISOString()
+        } : undefined
       });
     }
   };
 
-  /** 
-   * Check if a query is related to Nigerian legal topics 
-   */
-  public static checkLegalQuery: RequestHandler = async (req, res) => {
-    try {
-      const { query } = req.body;
+  private static intelligentPlaceholderReplacement(content: string, placeholders: Record<string, string>): {
+    content: string;
+    replacementsMade: number;
+    unmatchedPlaceholders: string[];
+  } {
+    let processedContent = content;
+    let replacementsMade = 0;
+    const unmatchedPlaceholders: string[] = [];
+    
+    // ✅ FIX: Properly type the documentPlaceholders array
+    const placeholderMatches = content.match(/\{\{[^}]+\}\}/g);
+    const documentPlaceholders: string[] = placeholderMatches ? placeholderMatches : [];
+    
+    console.log('🔍 [INTELLIGENT REPLACEMENT] Analysis:', {
+      documentPlaceholders: documentPlaceholders.length,
+      availableReplacements: Object.keys(placeholders).length,
+      documentPlaceholdersList: documentPlaceholders,
+      availableKeys: Object.keys(placeholders)
+    });
+    
+    // For each placeholder in the document, try to find a match
+    documentPlaceholders.forEach((placeholder: string) => {
+      const cleanPlaceholder = placeholder.replace(/\{\{|\}\}/g, '').trim();
+      let replacementValue: string | null = null;
       
-      // Basic validation
-      if (!query) {
-        res.status(400).json({
-          success: false,
-          error: 'Query is required.'
-        });
-        return;
-      }
-      
-      console.log("API Key available:", !!process.env.OPENAI_API_KEY);
-      
-      try {
-        // Use OpenAI to determine if query is related to Nigerian law
-        const isLegalQuery = await openai.chat.completions.create({
-          model: 'gpt-3.5-turbo',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a helpful assistant that determines if a query is related to Nigerian legal topics. Reply with either "true" or "false" only.',
-            },
-            {
-              role: 'user',
-              content: `Is this question related to Nigerian law or legal matters? Question: "${query}"`,
-            },
-          ],
-          max_tokens: 10,
-          temperature: 0.1,
+      // Try exact match first
+      if (placeholders[placeholder]) {
+        replacementValue = placeholders[placeholder];
+      } else {
+        // Try intelligent matching
+        const possibleMatches = Object.keys(placeholders).filter((key: string) => {
+          const cleanKey = key.replace(/\{\{|\}\}/g, '').trim();
+          return cleanKey.toLowerCase() === cleanPlaceholder.toLowerCase() ||
+                 cleanKey.replace(/\s+/g, '').toLowerCase() === cleanPlaceholder.replace(/\s+/g, '').toLowerCase() ||
+                 cleanKey.replace(/\s+/g, '_').toLowerCase() === cleanPlaceholder.replace(/\s+/g, '_').toLowerCase();
         });
         
-        const isLegalQueryResult = isLegalQuery.choices?.[0]?.message?.content?.toLowerCase().includes('true');
-        
-        // Send the result
-        res.json({
-          success: true,
-          isLegalQuery: isLegalQueryResult
-        });
-      } catch (openAiError) {
-        console.error('OpenAI API Error:', openAiError);
-        res.status(500).json({
-          success: false,
-          error: 'OpenAI API error: ' + openAiError.message
-        });
+        if (possibleMatches.length > 0) {
+          replacementValue = placeholders[possibleMatches[0]];
+        }
       }
-    } catch (error) {
-      console.error('General Error in checkLegalQuery:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Server error: ' + (error.message || 'Unknown error')
-      });
-    }
-  };
+      
+      if (replacementValue) {
+        // Use global replace to replace all instances
+        const escapedPlaceholder = placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escapedPlaceholder, 'g');
+        const beforeLength = processedContent.length;
+        processedContent = processedContent.replace(regex, replacementValue);
+        const afterLength = processedContent.length;
+        
+        if (beforeLength !== afterLength || !processedContent.includes(placeholder)) {
+          replacementsMade++;
+          console.log(`✅ [REPLACEMENT] ${placeholder} → ${replacementValue}`);
+        }
+      } else {
+        unmatchedPlaceholders.push(placeholder);
+        console.log(`⚠️ [UNMATCHED] ${placeholder}`);
+      }
+    });
+    
+    return {
+      content: processedContent,
+      replacementsMade,
+      unmatchedPlaceholders
+    };
+  }
 
   /**
-   * Handle chat messages with legal queries
+   * Chat with AI for legal advice
    */
-  public static handleChatQuery: RequestHandler = async (req, res) => {
+  public static chatWithAI = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { query, chatHistory = [] } = req.body;
-      // Basic validation
-      if (!query) {
+      const { message, conversationHistory = [] } = req.body;
+
+      if (!message) {
         res.status(400).json({
           success: false,
-          error: 'Query is required.'
+          message: 'Message is required'
         });
         return;
       }
-      // Determine if query is related to Nigerian law
-      const isLegalQuery = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a helpful assistant that determines if a query is related to Nigerian legal topics. Reply with either "true" or "false" only.',
-          },
-          {
-            role: 'user',
-            content: `Is this question related to Nigerian law or legal matters? Question: "${query}"`,
-          },
-        ],
-        max_tokens: 10,
+
+      // ✅ FIX: Proper message format for OpenAI
+      const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        {
+          role: "system",
+          content: `You are a professional legal AI assistant. Provide helpful, accurate legal information while:
+1. Never giving specific legal advice
+2. Always recommending consulting with a qualified lawyer for specific cases
+3. Focusing on general legal information and education
+4. Being clear about limitations of AI legal assistance
+5. Maintaining a professional, helpful tone`
+        },
+        // Add conversation history
+        ...conversationHistory.map((msg: any) => ({
+          role: msg.role === 'user' ? 'user' as const : 'assistant' as const,
+          content: msg.content
+        })),
+        // Add current message
+        {
+          role: "user",
+          content: message
+        }
+      ];
+
+      // ✅ FIX: Updated to use max_completion_tokens instead of deprecated max_tokens
+      const completion = await openai.chat.completions.create({
+        model: process.env.OPENAI_MODEL || "gpt-4",
+        messages: messages,
+        max_completion_tokens: 1000,
+        temperature: 0.7
+      });
+
+      const reply = completion.choices[0]?.message?.content;
+
+      if (!reply) {
+        throw new Error('No response generated');
+      }
+
+      res.json({
+        success: true,
+        message: 'Response generated successfully',
+        data: {
+          reply,
+          conversationId: Date.now().toString(),
+          timestamp: new Date().toISOString(),
+          tokensUsed: completion.usage?.total_tokens || 0
+        }
+      });
+
+    } catch (error: any) {
+      console.error('❌ Chat AI error:', error);
+      
+      res.status(500).json({
+        success: false,
+        message: 'Failed to generate AI response',
+        error: error.message
+      });
+    }
+  };
+
+  // ✅ FIX: Improve document method with updated parameters
+  public static improveDocument = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { documentContent, improvementRequest, templateType } = req.body;
+
+      if (!documentContent) {
+        res.status(400).json({ 
+          success: false,
+          message: 'Document content is required.' 
+        });
+        return;
+      }
+
+      console.log('[DEBUG] 📈 Improving document:', {
+        contentLength: documentContent.length,
+        hasImprovementRequest: !!improvementRequest,
+        templateType: templateType || 'unknown'
+      });
+
+      const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        {
+          role: "system",
+          content: `You are a legal document improvement assistant specializing in Nigerian law. Improve legal documents while maintaining legal accuracy, Nigerian law compliance, and professional formatting. Focus on clarity, legal soundness, and proper structure.`
+        },
+        {
+          role: "user",
+          content: `Please improve this ${templateType || 'legal'} document${improvementRequest ? ` focusing on: ${improvementRequest}` : ''}. Maintain all placeholders in {{placeholder_name}} format:\n\n${documentContent}`
+        }
+      ];
+
+      // ✅ FIX: Updated to use max_completion_tokens
+      const response = await openai.chat.completions.create({
+                model: process.env.OPENAI_MODEL || 'gpt-4',
+        messages: messages,
+        max_completion_tokens: 4000,
         temperature: 0.1,
       });
-      const isLegalQueryResult = isLegalQuery.choices?.[0]?.message?.content?.toLowerCase().includes('true');
-      // If not a legal query, return an appropriate message
-      if (!isLegalQueryResult) {
-        res.json({
-          success: true,
-          data: {
-            response: "I'm sorry, I can only answer questions related to Nigerian law and legal matters. Please ask a legal question or seek advice on a legal issue in Nigeria.",
-            isLegalQuery: false
-          }
-        });
-        return;
+
+      const improvedDocument = response.choices?.[0]?.message?.content || '';
+
+      if (!improvedDocument) {
+        throw new Error('No improved content generated');
       }
-      // Format the chat history for OpenAI
-      const formattedHistory = [
-        {
-          role: 'system',
-          content: `You are a helpful, friendly Nigerian legal assistant.
-          - Format your responses in a well-structured way with paragraphs and bullet points where appropriate
-          - Be conversational but professional
-          - Cite relevant Nigerian laws and statutes when applicable
-          - Always provide context-specific answers based on Nigerian legal framework
-          - Keep your responses concise and within screen view when possible
-          - If unsure, acknowledge limitations and suggest consulting a qualified Nigerian lawyer`
-        },
-        ...chatHistory
-      ];
-      // Add the current query
-      formattedHistory.push({
-        role: 'user',
-        content: query
+
+      console.log('✅ [IMPROVEMENT DEBUG] Document improved successfully:', {
+        originalLength: documentContent.length,
+        improvedLength: improvedDocument.length,
+        tokensUsed: response.usage?.total_tokens || 0
       });
-      // Get response from OpenAI
-      const response = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: formattedHistory,
-        max_tokens: 800,
-        temperature: 0.7,
-      });
-      const aiMessage = response.choices?.[0]?.message?.content || '';
-      // Send the AI-generated response
+
       res.json({
         success: true,
+        message: 'Document improved successfully',
         data: {
-          response: aiMessage,
-          isLegalQuery: true
+          improvedDocument,
+          metadata: {
+            templateType: templateType || 'legal',
+            improvementRequest: improvementRequest || 'General improvement',
+            improvedAt: new Date().toISOString(),
+            tokensUsed: response.usage?.total_tokens || 0,
+            originalLength: documentContent.length,
+            improvedLength: improvedDocument.length
+          }
         }
       });
+
     } catch (error: any) {
-      console.error('Error in ChatGptController.handleChatQuery:', error);
+      console.error('❌ [IMPROVEMENT DEBUG] Document improvement failed:', {
+        error: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString()
+      });
+
       res.status(500).json({
         success: false,
-        error: 'Failed to process chat query. See server logs for details.'
+        message: 'Failed to improve document',
+        error: error.message,
+        details: process.env.NODE_ENV === 'development' ? {
+          stack: error.stack,
+          timestamp: new Date().toISOString()
+        } : undefined
       });
     }
   };
+
+  // ✅ FIX: Legal query check method with updated parameters
+  public static checkLegalQuery = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { query, context } = req.body;
+
+      if (!query) {
+        res.status(400).json({
+          success: false,
+          message: 'Query is required'
+        });
+        return;
+      }
+
+      console.log('[DEBUG] ⚖️ Processing legal query:', {
+        queryLength: query.length,
+        hasContext: !!context,
+        timestamp: new Date().toISOString()
+      });
+
+      const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        {
+          role: "system",
+          content: `You are a legal information assistant for Nigerian law. Provide helpful legal information while:
+1. Never giving specific legal advice - always recommend consulting a qualified Nigerian lawyer
+2. Focusing on general legal principles and information
+3. Being clear about limitations and the need for professional legal counsel
+4. Referencing relevant Nigerian laws when applicable
+5. Maintaining a helpful but cautious tone about legal matters`
+        },
+        {
+          role: "user",
+          content: `Legal query: ${query}${context ? `\n\nContext: ${context}` : ''}`
+        }
+      ];
+
+      // ✅ FIX: Updated to use max_completion_tokens
+      const completion = await openai.chat.completions.create({
+        model: process.env.OPENAI_MODEL || "gpt-4",
+        messages: messages,
+        max_completion_tokens: 800,
+        temperature: 0.5
+      });
+
+      const response = completion.choices[0]?.message?.content;
+
+      if (!response) {
+        throw new Error('No response generated for legal query');
+      }
+
+      console.log('✅ [LEGAL QUERY DEBUG] Legal query processed successfully:', {
+        queryLength: query.length,
+        responseLength: response.length,
+        tokensUsed: completion.usage?.total_tokens || 0
+      });
+
+      res.json({
+        success: true,
+        message: 'Legal query processed successfully',
+        data: {
+          response,
+          metadata: {
+            query: query.substring(0, 100) + (query.length > 100 ? '...' : ''),
+            hasContext: !!context,
+            processedAt: new Date().toISOString(),
+            tokensUsed: completion.usage?.total_tokens || 0,
+            disclaimer: 'This is general legal information only. Consult a qualified Nigerian lawyer for specific legal advice.'
+          }
+        }
+      });
+
+    } catch (error: any) {
+      console.error('❌ [LEGAL QUERY DEBUG] Legal query processing failed:', {
+        error: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString()
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to process legal query',
+        error: error.message,
+        details: process.env.NODE_ENV === 'development' ? {
+          stack: error.stack,
+          timestamp: new Date().toISOString()
+        } : undefined
+      });
+    }
+  };
+
+  // ✅ FIX: Handle chat query method with updated parameters
+  public static handleChatQuery = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { message, conversationHistory = [], context } = req.body;
+
+      if (!message) {
+        res.status(400).json({
+          success: false,
+          message: 'Message is required'
+        });
+        return;
+      }
+
+      console.log('[DEBUG] 💬 Processing chat query:', {
+        messageLength: message.length,
+        historyLength: conversationHistory.length,
+        hasContext: !!context,
+        timestamp: new Date().toISOString()
+      });
+
+      // Build conversation messages
+      const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        {
+          role: "system",
+          content: `You are EasyLaw AI, a helpful legal information assistant specializing in Nigerian law. You help users understand legal concepts, procedures, and requirements in Nigeria. 
+
+Guidelines:
+- Provide accurate general legal information about Nigerian law
+- Always recommend consulting with a qualified Nigerian lawyer for specific legal advice
+- Be helpful, professional, and clear in explanations
+- Reference relevant Nigerian laws, acts, and regulations when applicable
+- Clarify that you provide information, not legal advice
+- Be empathetic to users' legal concerns while maintaining professional boundaries
+
+${context ? `\nContext for this conversation: ${context}` : ''}`
+        },
+        // Add conversation history
+        ...conversationHistory.map((msg: any) => ({
+          role: msg.role === 'user' ? 'user' as const : 'assistant' as const,
+          content: msg.content
+        })),
+        // Add current message
+        {
+          role: "user",
+          content: message
+        }
+      ];
+
+      // ✅ FIX: Updated to use max_completion_tokens
+      const completion = await openai.chat.completions.create({
+        model: process.env.OPENAI_MODEL || "gpt-4",
+        messages: messages,
+        max_completion_tokens: 1200,
+        temperature: 0.6
+      });
+
+      const reply = completion.choices[0]?.message?.content;
+
+      if (!reply) {
+        throw new Error('No response generated for chat query');
+      }
+
+      console.log('✅ [CHAT DEBUG] Chat query processed successfully:', {
+        messageLength: message.length,
+        replyLength: reply.length,
+        tokensUsed: completion.usage?.total_tokens || 0,
+        conversationLength: conversationHistory.length
+      });
+
+      res.json({
+        success: true,
+        message: 'Chat response generated successfully',
+        data: {
+          reply,
+          conversationId: req.body.conversationId || Date.now().toString(),
+          metadata: {
+            timestamp: new Date().toISOString(),
+            tokensUsed: completion.usage?.total_tokens || 0,
+            messageCount: conversationHistory.length + 1,
+            hasContext: !!context,
+            disclaimer: 'This is general legal information. For specific legal advice, please consult a qualified Nigerian lawyer.'
+          }
+        }
+      });
+
+    } catch (error: any) {
+      console.error('❌ [CHAT DEBUG] Chat query processing failed:', {
+        error: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString()
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to process chat query',
+        error: error.message,
+        details: process.env.NODE_ENV === 'development' ? {
+          stack: error.stack,
+          timestamp: new Date().toISOString()
+        } : undefined
+      });
+    }
+  };
+
+  /**
+   * Multer middleware for file uploads
+   */
+  public static uploadMiddleware = upload.single('templateFile');
+
+  /**
+   * Get multer middleware for file uploads (alternative method)
+   */
+  public static getUploadMiddleware() {
+    return upload.single('templateFile');
+  }
+  
+  // ✅ ADD: Template verification method
+  public static verifyTemplateContent = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { templateId } = req.params;
+      
+      if (!templateId) {
+        res.status(400).json({
+          success: false,
+          message: 'Template ID is required'
+        });
+        return;
+      }
+      
+      const template = await DocumentTemplate.findById(templateId);
+      
+      if (!template) {
+        res.status(404).json({
+          success: false,
+          message: 'Template not found'
+        });
+        return;
+      }
+      
+      let templateContent = '';
+      
+      if (template.templateFile) {
+        if (template.templateFileType === 'docx') {
+          const result = await mammoth.extractRawText({ 
+            buffer: template.templateFile
+          });
+          templateContent = result.value;
+        } else {
+          templateContent = template.templateFile.toString('utf-8');
+        }
+      }
+      
+      const placeholders = templateContent.match(/\{\{[^}]+\}\}/g) || [];
+      
+      res.json({
+        success: true,
+        data: {
+          templateId: template._id,
+          templateName: template.name,
+          hasContent: !!templateContent,
+          contentLength: templateContent.length,
+          placeholdersFound: placeholders.length,
+          placeholders: placeholders,
+          fields: template.fields || []
+        }
+      });
+      
+    } catch (error: any) {
+      console.error('❌ Template verification error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to verify template',
+        error: error.message
+      });
+    }
+  };
+
 }

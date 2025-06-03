@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import PDFDocument from "pdfkit";
 import { Document as DocxDocument, Packer, Paragraph, TextRun } from "docx";
-import Document from "../models/Document";
+import Document, { IDocument } from "../models/Document";
+import GeneratedDocument, { IGeneratedDocument } from "../models/GeneratedDocument";
 import { CustomRequest } from "../middleware/authMiddleware";
 
 type ExpressHandler = (req: Request, res: Response, next: NextFunction) => void;
@@ -11,15 +12,38 @@ export class DocumentsController {
   public static getAllDocuments: ExpressHandler = (req, res, next) => {
     const fetchDocuments = async () => {
       try {
-        // Get userId from authenticated user in request
         const userId = (req as CustomRequest).user?._id || (req as CustomRequest).user?.user_id;
         
         if (!userId) {
           res.status(401).json({ message: "Authentication required" });
           return;
         }
-        // Fetch documents belonging to the user
-        const documents = await Document.find({ userId }).sort({ createdAt: -1 });
+        
+        // ✅ FIX: Fetch both uploaded and generated documents
+        const [uploadedDocs, generatedDocs] = await Promise.all([
+          Document.find({ user_id: userId }).sort({ createdAt: -1 }),
+          GeneratedDocument.find({ userId }).sort({ createdAt: -1 })
+        ]);
+        
+        // Combine and format documents
+        const documents = [
+          ...uploadedDocs.map(doc => ({
+            _id: doc._id,
+            title: doc.file_name || 'Uploaded Document',
+            type: 'uploaded',
+            createdAt: doc.createdAt,
+            content: null
+          })),
+          ...generatedDocs.map(doc => ({
+            _id: doc._id,
+            title: doc.title,
+            type: 'generated',
+            createdAt: doc.createdAt,
+            content: doc.content,
+            status: doc.status
+          }))
+        ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        
         res.status(200).json({ success: true, data: documents });
       } catch (error) {
         console.error("Error fetching documents:", error);
@@ -33,12 +57,11 @@ export class DocumentsController {
   public static saveDocument: ExpressHandler = (req, res, next) => {
     const saveDoc = async () => {
       try {
-        const { title, finalDoc } = req.body;
-        // Get userId from authenticated user
+        const { title, content, templateId, formData, status } = req.body;
         const userId = (req as CustomRequest).user?._id || (req as CustomRequest).user?.user_id;
         
-        if (!title || !finalDoc) {
-          res.status(400).json({ message: "Missing title or finalDoc" });
+        if (!title || !content) {
+          res.status(400).json({ message: "Missing title or content" });
           return;
         }
         
@@ -46,13 +69,17 @@ export class DocumentsController {
           res.status(401).json({ message: "Authentication required" });
           return;
         }
-        // Create new document in MongoDB
-        const newDoc = await Document.create({
+        
+        // ✅ FIX: Save as GeneratedDocument
+        const newDoc = await GeneratedDocument.create({
           title,
-          content: finalDoc,
+          content,
           userId,
-          createdAt: new Date()
+          templateId,
+          formData: formData || {},
+          status: status || 'draft'
         });
+        
         res.status(201).json({
           success: true,
           message: "Document saved successfully",
@@ -71,7 +98,7 @@ export class DocumentsController {
     const updateDoc = async () => {
       try {
         const documentId = req.params.id;
-        const { title, content } = req.body;
+        const { title, content, status } = req.body;
         const userId = (req as CustomRequest).user?._id || (req as CustomRequest).user?.user_id;
         
         if (!userId) {
@@ -79,20 +106,19 @@ export class DocumentsController {
           return;
         }
         
-        // Check if document exists and belongs to user
-        const existingDoc = await Document.findOne({ _id: documentId, userId });
+        // ✅ FIX: Update GeneratedDocument
+        const existingDoc = await GeneratedDocument.findOne({ _id: documentId, userId });
         if (!existingDoc) {
           res.status(404).json({ message: "Document not found or you don't have permission to update it" });
           return;
         }
         
-        // Update the document
-        const updatedDoc = await Document.findByIdAndUpdate(
+        const updatedDoc = await GeneratedDocument.findByIdAndUpdate(
           documentId,
           { 
             title: title || existingDoc.title,
             content: content || existingDoc.content,
-            updatedAt: new Date()
+            status: status || existingDoc.status
           },
           { new: true }
         );
@@ -114,7 +140,7 @@ export class DocumentsController {
   public static exportDocument: ExpressHandler = (req, res, next) => {
     const exportDoc = async () => {
       try {
-        const { format, content, title } = req.body;
+        const { format, content, title, documentId } = req.body;
         const userId = (req as CustomRequest).user?._id || (req as CustomRequest).user?.user_id;
         
         if (!format || !content) {
@@ -122,17 +148,16 @@ export class DocumentsController {
           return;
         }
   
-        // Save document if authenticated
-        if (userId && title) {
+        // ✅ FIX: Update document status to exported
+        if (userId && documentId) {
           try {
-            await Document.findOneAndUpdate(
-              { userId, title },
-              { content, format },
-              { upsert: true, new: true }
+            await GeneratedDocument.findOneAndUpdate(
+              { _id: documentId, userId },
+              { status: 'exported' },
+              { new: true }
             );
-          } catch (saveErr) {
-            console.error("Error saving document during export:", saveErr);
-            // Continue with export even if save fails
+          } catch (updateErr) {
+            console.error("Error updating document status:", updateErr);
           }
         }
   
@@ -144,15 +169,13 @@ export class DocumentsController {
           doc.fontSize(14).text(content);
           doc.end();
         } else if (format === "word") {
-          // Check if content is HTML
           if (content.trim().startsWith('<!DOCTYPE') || content.trim().startsWith('<html')) {
             const htmlToDocx = require('html-to-docx');
             
-            // Convert HTML to DOCX buffer
             const buffer = await htmlToDocx(content, {
               title: title || 'Document',
               margin: {
-                top: 1440, // 1 inch in twip
+                top: 1440,
                 right: 1440,
                 bottom: 1440,
                 left: 1440
@@ -166,7 +189,6 @@ export class DocumentsController {
             );
             res.status(200).send(buffer);
           } else {
-            // For plain text content, use the existing docx package approach
             const doc = new DocxDocument({
               sections: [
                 {
@@ -197,7 +219,6 @@ export class DocumentsController {
   
     exportDoc();
   };
-  
 
   // DELETE /api/documents/:id
   public static deleteDocument: ExpressHandler = (req, res, next) => {
@@ -205,21 +226,34 @@ export class DocumentsController {
       try {
         const documentId = req.params.id;
         const userId = (req as CustomRequest).user?._id || (req as CustomRequest).user?.user_id;
+        
         if (!userId) {
           res.status(401).json({ message: "Authentication required" });
           return;
         }
-        // Ensure the document belongs to the user
-        const document = await Document.findOne({
-          _id: documentId,
-          userId
-        });
-        if (!document) {
+        
+        // Try to delete from both collections
+        let deleted = false;
+        
+        // Try GeneratedDocument first
+        const generatedDoc = await GeneratedDocument.findOne({ _id: documentId, userId });
+        if (generatedDoc) {
+          await GeneratedDocument.findByIdAndDelete(documentId);
+          deleted = true;
+        } else {
+          // Try regular Document
+          const uploadedDoc = await Document.findOne({ _id: documentId, user_id: userId });
+          if (uploadedDoc) {
+            await Document.findByIdAndDelete(documentId);
+            deleted = true;
+          }
+        }
+        
+        if (!deleted) {
           res.status(404).json({ message: "Document not found or you don't have permission to delete it" });
           return;
         }
-        // Delete the document
-        await Document.findByIdAndDelete(documentId);
+        
         res.status(200).json({ success: true, message: "Document deleted successfully" });
       } catch (error) {
         console.error("Error deleting document:", error);
@@ -228,47 +262,6 @@ export class DocumentsController {
     };
     deleteDoc();
   };
- // Add this method to your DocumentsController class:
-
-// Update the replacePlaceholders method to follow the same pattern as your other methods
-public static replacePlaceholders: ExpressHandler = (req, res, next) => {
-  // Using a wrapper function to ensure consistent pattern
-  const replacePlaceholders = async () => {
-    try {
-      const { content, placeholders } = req.body;
-      
-      if (!content || !placeholders) {
-        res.status(400).json({
-          success: false,
-          message: 'Missing content or placeholders in request'
-        });
-        return;
-      }
-      
-      let replacedContent = content;
-      
-      // Replace placeholders in {{placeholder}} format
-      Object.entries(placeholders).forEach(([key, value]) => {
-        const regex = new RegExp(`{{${key}}}`, 'g');
-        replacedContent = replacedContent.replace(regex, value as string);
-      });
-      
-      res.json({
-        success: true,
-        content: replacedContent
-      });
-    } catch (error) {
-      console.error('Error replacing placeholders:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to replace placeholders'
-      });
-    }
-  };
-  
-  replacePlaceholders();
-};
-
 
   // GET /api/documents/:id
   public static getDocumentById: ExpressHandler = (req, res, next) => {
@@ -276,18 +269,24 @@ public static replacePlaceholders: ExpressHandler = (req, res, next) => {
       try {
         const documentId = req.params.id;
         const userId = (req as CustomRequest).user?._id || (req as CustomRequest).user?.user_id;
+        
         if (!userId) {
           res.status(401).json({ message: "Authentication required" });
           return;
         }
-        const document = await Document.findOne({
-          _id: documentId,
-          userId
-        });
+        
+        // Try both document types
+        let document = await GeneratedDocument.findOne({ _id: documentId, userId });
+        
+        if (!document) {
+          document = await Document.findOne({ _id: documentId, user_id: userId });
+        }
+        
         if (!document) {
           res.status(404).json({ message: "Document not found" });
           return;
         }
+        
         res.status(200).json({ success: true, data: document });
       } catch (error) {
         console.error("Error fetching document:", error);
@@ -295,5 +294,164 @@ public static replacePlaceholders: ExpressHandler = (req, res, next) => {
       }
     };
     fetchDocument();
+  };
+
+  // ✅ FIX: Move intelligentPlaceholderReplacement to DocumentsController
+  private static intelligentPlaceholderReplacement(content: string, placeholders: Record<string, string>): {
+    content: string;
+    replacementsMade: number;
+    unmatchedPlaceholders: string[];
+  } {
+    let processedContent = content;
+    let replacementsMade = 0;
+    const unmatchedPlaceholders: string[] = [];
+    
+    // ✅ FIX: Properly type the documentPlaceholders array
+    const placeholderMatches = content.match(/\{\{[^}]+\}\}/g);
+    const documentPlaceholders: string[] = placeholderMatches ? placeholderMatches : [];
+    
+    console.log('🔍 [INTELLIGENT REPLACEMENT] Analysis:', {
+      documentPlaceholders: documentPlaceholders.length,
+      availableReplacements: Object.keys(placeholders).length,
+      documentPlaceholdersList: documentPlaceholders,
+      availableKeys: Object.keys(placeholders)
+    });
+    
+    // For each placeholder in the document, try to find a match
+    documentPlaceholders.forEach((placeholder: string) => {
+      const cleanPlaceholder = placeholder.replace(/\{\{|\}\}/g, '').trim();
+      let replacementValue: string | null = null;
+      
+      // Try exact match first
+      if (placeholders[placeholder]) {
+        replacementValue = placeholders[placeholder];
+      } else {
+        // Try intelligent matching
+        const possibleMatches = Object.keys(placeholders).filter((key: string) => {
+          const cleanKey = key.replace(/\{\{|\}\}/g, '').trim();
+          return cleanKey.toLowerCase() === cleanPlaceholder.toLowerCase() ||
+                 cleanKey.replace(/\s+/g, '').toLowerCase() === cleanPlaceholder.replace(/\s+/g, '').toLowerCase() ||
+                 cleanKey.replace(/\s+/g, '_').toLowerCase() === cleanPlaceholder.replace(/\s+/g, '_').toLowerCase();
+        });
+        
+        if (possibleMatches.length > 0) {
+          replacementValue = placeholders[possibleMatches[0]];
+        }
+      }
+      
+      if (replacementValue) {
+        // Use global replace to replace all instances
+        const escapedPlaceholder = placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escapedPlaceholder, 'g');
+        const beforeLength = processedContent.length;
+        processedContent = processedContent.replace(regex, replacementValue);
+        const afterLength = processedContent.length;
+        
+        if (beforeLength !== afterLength || !processedContent.includes(placeholder)) {
+          replacementsMade++;
+          console.log(`✅ [REPLACEMENT] ${placeholder} → ${replacementValue}`);
+        }
+      } else {
+        unmatchedPlaceholders.push(placeholder);
+        console.log(`⚠️ [UNMATCHED] ${placeholder}`);
+      }
+    });
+    
+    return {
+      content: processedContent,
+      replacementsMade,
+      unmatchedPlaceholders
+    };
+  }
+
+  public static replacePlaceholders = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { content, placeholders, enhancedReplacement, intelligentMatching } = req.body;
+      
+      if (!content) {
+        res.status(400).json({
+          success: false,
+          message: 'Content is required'
+        });
+        return;
+      }
+      
+      if (!placeholders || Object.keys(placeholders).length === 0) {
+        res.status(400).json({
+          success: false,
+          message: 'Placeholders object is required'
+        });
+        return;
+      }
+      
+      console.log('🔄 [ENHANCED REPLACEMENT] Request:', {
+        contentLength: content.length,
+        placeholderCount: Object.keys(placeholders).length,
+        enhancedReplacement,
+        intelligentMatching
+      });
+      
+      let processedContent = content;
+      let replacementsMade = 0;
+      let unmatchedPlaceholders: string[] = [];
+      
+      if (intelligentMatching) {
+        // Use intelligent replacement
+        const result = DocumentsController.intelligentPlaceholderReplacement(content, placeholders);
+        processedContent = result.content;
+        replacementsMade = result.replacementsMade;
+        unmatchedPlaceholders = result.unmatchedPlaceholders;
+      } else {
+        // Use simple replacement (existing logic)
+        Object.entries(placeholders).forEach(([key, value]) => {
+          const patterns = [
+            new RegExp(`\\{\\{\\s*${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\}\\}`, 'gi'),
+            new RegExp(`\\{\\s*${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\}`, 'gi'),
+            new RegExp(`\\[\\s*${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\]`, 'gi')
+          ];
+          
+          patterns.forEach(pattern => {
+            if (pattern.test(processedContent)) {
+              processedContent = processedContent.replace(pattern, value);
+              replacementsMade++;
+            }
+          });
+        });
+      }
+      
+      console.log('✅ [REPLACEMENT COMPLETE]:', {
+        originalLength: content.length,
+        processedLength: processedContent.length,
+        replacementsMade,
+        unmatchedCount: unmatchedPlaceholders.length
+      });
+      
+      res.json({
+        success: true,
+        data: {
+          content: processedContent,
+          metadata: {
+            originalLength: content.length,
+            processedLength: processedContent.length,
+            replacementsMade,
+            unmatchedPlaceholders,
+            processingMethod: intelligentMatching ? 'intelligent' : 'simple'
+          }
+        }
+      });
+      
+    } catch (error: any) {
+      console.error('❌ [REPLACEMENT ERROR]:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to replace placeholders',
+        error: error.message
+      });
+    }
+  };
+
+  // ✅ FIX: Make escapeRegExp a static method
+  private static escapeRegExp(string: string): string {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 }

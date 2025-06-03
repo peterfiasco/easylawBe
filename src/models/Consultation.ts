@@ -37,7 +37,18 @@ const ConsultationSchema: Schema = new Schema({
   createdAt: {
     type: Date,
     default: Date.now
+  },
+  updated_at: {
+    type: Date,
+    default: Date.now
   }
+});
+
+ConsultationSchema.pre('save', function(next) {
+  if (this.isModified()) {
+    this.updated_at = new Date();
+  }
+  next();
 });
 
 export default mongoose.model<IConsultation>('Consultation', ConsultationSchema);
