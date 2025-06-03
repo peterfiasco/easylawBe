@@ -37,17 +37,102 @@ const mongoose_1 = __importStar(require("mongoose"));
 const DocumentSchema = new mongoose_1.Schema({
     title: {
         type: String,
-        required: [true, "Title is required"],
-        trim: true,
+        required: true,
+        trim: true
     },
     content: {
         type: String,
-        required: [true, "Content is required"],
+        required: true
     },
-    userId: {
+    format: {
+        type: String,
+        default: 'html'
+    },
+    service_request_id: {
         type: mongoose_1.default.Schema.Types.ObjectId,
-        ref: "User",
-        required: true,
+        ref: 'ServiceRequest',
+        required: [true, 'Service request ID is required']
     },
-}, { timestamps: true });
-exports.default = mongoose_1.default.model("Document", DocumentSchema);
+    user_id: {
+        type: mongoose_1.default.Schema.Types.ObjectId,
+        ref: 'User',
+        required: [true, 'User ID is required']
+    },
+    document_type: {
+        type: String,
+        enum: ['upload', 'generated', 'certificate', 'report'],
+        required: [true, 'Document type is required']
+    },
+    document_category: {
+        type: String,
+        required: [true, 'Document category is required'],
+        trim: true
+    },
+    file_name: {
+        type: String,
+        required: [true, 'File name is required'],
+        trim: true
+    },
+    file_size: {
+        type: Number,
+        required: [true, 'File size is required'],
+        min: 0
+    },
+    file_type: {
+        type: String,
+        required: [true, 'File type is required'],
+        trim: true
+    },
+    cloudinary_public_id: {
+        type: String,
+        required: [true, 'Cloudinary public ID is required'],
+        trim: true
+    },
+    cloudinary_url: {
+        type: String,
+        required: [true, 'Cloudinary URL is required'],
+        trim: true
+    },
+    secure_url: {
+        type: String,
+        required: [true, 'Secure URL is required'],
+        trim: true
+    },
+    is_confidential: {
+        type: Boolean,
+        default: true
+    },
+    access_level: {
+        type: String,
+        enum: ['public', 'client_only', 'internal_only', 'restricted'],
+        default: 'client_only'
+    },
+    uploaded_by: {
+        type: mongoose_1.default.Schema.Types.ObjectId,
+        ref: 'User',
+        required: [true, 'Uploaded by is required']
+    },
+    description: {
+        type: String,
+        trim: true
+    },
+    tags: [{
+            type: String,
+            trim: true
+        }],
+    version: {
+        type: Number,
+        default: 1,
+        min: 1
+    },
+    parent_document_id: {
+        type: mongoose_1.default.Schema.Types.ObjectId,
+        ref: 'Document'
+    },
+    expiry_date: {
+        type: Date
+    }
+}, {
+    timestamps: true // This creates createdAt and updatedAt automatically
+});
+exports.default = mongoose_1.default.model('Document', DocumentSchema);

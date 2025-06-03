@@ -18,6 +18,7 @@ const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const response_1 = require("../../utils/response");
 const AuthValidator_1 = require("./AuthValidator");
 const User_1 = __importDefault(require("../../models/User"));
+const email_service_1 = require("../../services/email.service");
 const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { first_name, last_name, email, company_name, phone_number, website, business_type, address, password, confirm_password, } = req.body;
@@ -32,15 +33,35 @@ const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         // Hash password
         const salt = yield bcryptjs_1.default.genSalt(10);
         const hashedPassword = yield bcryptjs_1.default.hash(password, salt);
-        // Create new user
-        // In the Register function, modify the newUser creation:
         // Create new user with conditional fields
         const newUser = new User_1.default(Object.assign(Object.assign(Object.assign(Object.assign({ first_name,
             last_name,
             email,
             phone_number, password: hashedPassword }, (company_name && { company_name })), (website && { website })), (business_type && { business_type })), (address && { address })));
         yield newUser.save();
-        return (0, response_1.successResponse)(res, "User registered successfully", { user: newUser }, 201);
+        // Generate JWT token (same as login)
+        const token = jsonwebtoken_1.default.sign({ user_id: newUser._id, email: newUser.email, role: newUser.role }, process.env.JWT_SECRET, { expiresIn: "3h" });
+        // Send welcome email after successful registration
+        try {
+            const userName = `${first_name} ${last_name}`;
+            if (company_name) {
+                yield (0, email_service_1.sendCompanyWelcomeEmail)(email, userName, company_name);
+            }
+            else {
+                yield (0, email_service_1.sendWelcomeEmail)(email, userName);
+            }
+            console.log('Welcome email sent successfully');
+        }
+        catch (emailError) {
+            console.error('Failed to send welcome email:', emailError);
+            // Don't fail registration if email fails
+        }
+        // Return success response with token and user data
+        return (0, response_1.successResponse)(res, "User registered successfully", {
+            token,
+            user: newUser,
+            message: "Registration successful! Welcome to EasyLaw!"
+        }, 201);
     }
     catch (error) {
         console.error("Register Error:", error);
@@ -64,12 +85,10 @@ const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         if (!isMatch) {
             return (0, response_1.errorResponse)(res, "Invalid password, Please try again", {}, 401);
         }
-        const token = jsonwebtoken_1.default.sign({ user_id: user._id, email: user.email, role: user.role }, process.env.JWT_SECRET, { expiresIn: "3h" } // Token valid for 7 days
-        );
+        const token = jsonwebtoken_1.default.sign({ user_id: user._id, email: user.email, role: user.role }, process.env.JWT_SECRET, { expiresIn: "3h" });
         return (0, response_1.successResponse)(res, 'Login successful', { token, user }, 200);
     }
     catch (error) {
-        // console.error("Register Error:", error);
         return (0, response_1.errorResponse)(res, "Internal Server Error", { error: error.message }, 500);
     }
 });

@@ -34,52 +34,51 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 const mongoose_1 = __importStar(require("mongoose"));
-const ConsultationSchema = new mongoose_1.Schema({
+const DocumentAnalysisSchema = new mongoose_1.Schema({
     user_id: {
         type: mongoose_1.default.Schema.Types.ObjectId,
         ref: 'User',
-        required: [true, 'User is required']
+        required: true,
+        index: true
     },
-    consultation_type_id: {
-        type: mongoose_1.default.Schema.Types.ObjectId,
-        ref: 'ConsultationType',
-        required: [true, 'Consultation type is required']
-    },
-    date: {
-        type: Date,
-        required: [true, 'Date is required']
-    },
-    time: {
+    analysis_id: {
         type: String,
-        required: [true, 'Time is required']
+        required: true,
+        unique: true,
+        index: true
     },
-    reason: {
+    original_filename: {
         type: String,
-        required: [true, 'Reason is required'],
-        trim: true
+        required: true
     },
-    status: {
+    file_size: {
+        type: Number,
+        required: true
+    },
+    file_type: {
         type: String,
-        enum: ['pending', 'paid', 'completed', 'cancelled'],
-        default: 'pending'
+        required: true
     },
-    transaction_id: {
-        type: mongoose_1.default.Schema.Types.ObjectId,
-        ref: 'Transaction'
+    document_text: {
+        type: String,
+        required: true
     },
-    createdAt: {
-        type: Date,
-        default: Date.now
-    },
-    updated_at: {
-        type: Date,
-        default: Date.now
+    analysis: {
+        overall_score: { type: Number, required: true },
+        document_type: { type: String, required: true },
+        strengths: [{ type: String }],
+        weaknesses: [{ type: String }],
+        legal_compliance_score: { type: Number, required: true },
+        clarity_score: { type: Number, required: true },
+        specific_improvements: [{ type: String }],
+        missing_clauses: [{ type: String }],
+        summary: { type: String, required: true }
     }
+}, {
+    timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
 });
-ConsultationSchema.pre('save', function (next) {
-    if (this.isModified()) {
-        this.updated_at = new Date();
-    }
-    next();
-});
-exports.default = mongoose_1.default.model('Consultation', ConsultationSchema);
+// Indexes for better query performance
+DocumentAnalysisSchema.index({ user_id: 1, created_at: -1 });
+DocumentAnalysisSchema.index({ 'analysis.document_type': 1 });
+DocumentAnalysisSchema.index({ 'analysis.overall_score': 1 });
+exports.default = mongoose_1.default.model('DocumentAnalysis', DocumentAnalysisSchema);

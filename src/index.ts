@@ -1,11 +1,11 @@
 import express from "express";
-import dotenv from "dotenv";
+const dotenv = require("dotenv");
 import bodyParser from "body-parser";
 import rateLimit from "express-rate-limit";
 import { Server } from 'socket.io';
 import http from 'http';
-import helmet from 'helmet';
-import morgan from 'morgan';
+const helmet = require('helmet');
+const morgan = require('morgan');
 import connectDB from "./config/db";
 import authRouter from "./routes/Auth/auth.route";
 import Dashboardrouter from "./routes/Dashboard/SettingRoutes";
@@ -29,7 +29,6 @@ const cors = require("cors");
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 5000;
 const server = http.createServer(app);
 
 // ✅ Trust the proxy BEFORE middleware
@@ -258,6 +257,7 @@ app.use("/api/admin/templates", fileUploadLimiter);
 app.use("/api", apiLimiter);
 app.use("/api/public", publicRoutes);
 console.log('✅ Public routes mounted at /api/public');
+
 // 🔥 MOUNT ALL ROUTES (Order matters!)
 // Authentication routes
 app.use("/api/register", registerRoute);
@@ -288,6 +288,7 @@ console.log('✅ ChatGPT routes mounted');
 app.use("/api/documents", DocumentsRouter);
 console.log('✅ Document routes mounted');
 app.use('/api/document-analysis', documentAnalysisRoutes);
+
 // User routes
 app.use('/api/users', userRoutes);
 console.log('✅ User routes mounted');
@@ -371,7 +372,7 @@ app.use('*', (req, res) => {
       '/api/auth',
       '/api/consult',
       '/api/business-services',
-      '/api/business-registration', // 🔥 Should now appear here
+      '/api/business-registration',
       '/api/due-diligence',
       '/api/pay',
       '/api/admin'
@@ -399,8 +400,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     });
     return;
   }
-  
-    // Validation errors
+    
+  // Validation errors
   if (err.name === 'ValidationError') {
     res.status(400).json({
       success: false,
@@ -437,33 +438,16 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   });
 });
 
-// ✅ Local development: Start the Express server only if not in a Vercel environment
-if (process.env.NODE_ENV !== "vercel") {
-  server.listen(port, () => {
-    console.log(`🚀 EasyLaw API Server running on port ${port}`);
-    console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🌐 Health check: http://localhost:${port}/api/health`);
-    console.log(`📋 Available endpoints:`);
-    console.log(`  - Health Check: /api/health`);
-    console.log(`  - Authentication: /api/auth`);
-    console.log(`  - Registration: /api/register`);
-    console.log(`  - Dashboard: /api/dashboard`);
-    console.log(`  - Consultations: /api/consult`);
-    console.log(`  - Payments: /api/pay`);
-    console.log(`  - Admin Panel: /api/admin`);
-    console.log(`  - ChatGPT: /api/chatgpt`);
-    console.log(`  - Documents: /api/documents`);
-    console.log(`  - Users: /api/users`);
-    console.log(`  - Business Services: /api/business-services`);
-    console.log(`  - Business Registration: /api/business-registration`);
-    console.log(`  - Due Diligence: /api/due-diligence`);
-    console.log(`🔒 Security: Enhanced with rate limiting and input sanitization`);
-    console.log(`📧 Email Service: Mailgun configured`);
-    console.log(`💳 Payment Service: VPay integrated`);
-    console.log(`📁 File Storage: Cloudinary ready`);
-    console.log(`🧪 Test Route: /api/business-registration-test`);
-  });
-}
+// ✅ Port configuration - SINGLE DECLARATION
+const PORT = parseInt(process.env.PORT || '5000', 10);
 
-// ✅ Export app for Vercel deployment
+// ✅ For Render deployment, always start the server
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 EasyLaw API Server running on port ${PORT}`);
+  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🌐 Health check: http://0.0.0.0:${PORT}/api/health`);
+  console.log(`🌍 External URL: https://easylaw-backend.onrender.com`);
+});
+
+// ✅ Export app as default for Vercel compatibility
 export default app;

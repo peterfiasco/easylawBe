@@ -1,6 +1,5 @@
-import app from "../index";
-import { VercelRequest, VercelResponse } from "@vercel/node";
+const app = require("../index").default;
 
-export default function handler(req: VercelRequest, res: VercelResponse) {
+export default function handler(req: any, res: any) {
   return app(req, res);
 }

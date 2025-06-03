@@ -34,52 +34,51 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 const mongoose_1 = __importStar(require("mongoose"));
-const ConsultationSchema = new mongoose_1.Schema({
-    user_id: {
-        type: mongoose_1.default.Schema.Types.ObjectId,
-        ref: 'User',
-        required: [true, 'User is required']
-    },
-    consultation_type_id: {
-        type: mongoose_1.default.Schema.Types.ObjectId,
-        ref: 'ConsultationType',
-        required: [true, 'Consultation type is required']
-    },
-    date: {
-        type: Date,
-        required: [true, 'Date is required']
-    },
-    time: {
+const BusinessServicePricingSchema = new mongoose_1.Schema({
+    service_type: {
         type: String,
-        required: [true, 'Time is required']
+        required: true,
+        enum: ['incorporation', 'annual_returns', 'name_change', 'address_change', 'increase_capital']
     },
-    reason: {
+    priority: {
         type: String,
-        required: [true, 'Reason is required'],
+        required: true,
+        enum: ['standard', 'express', 'urgent']
+    },
+    price: {
+        type: Number,
+        required: true,
+        min: 0
+    },
+    duration: {
+        type: String,
+        required: true,
         trim: true
     },
-    status: {
+    description: {
         type: String,
-        enum: ['pending', 'paid', 'completed', 'cancelled'],
-        default: 'pending'
+        trim: true
     },
-    transaction_id: {
-        type: mongoose_1.default.Schema.Types.ObjectId,
-        ref: 'Transaction'
+    is_active: {
+        type: Boolean,
+        default: true
     },
-    createdAt: {
-        type: Date,
-        default: Date.now
+    created_by: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
     },
-    updated_at: {
-        type: Date,
-        default: Date.now
+    updated_by: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'User'
     }
+}, {
+    timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
 });
-ConsultationSchema.pre('save', function (next) {
-    if (this.isModified()) {
-        this.updated_at = new Date();
-    }
-    next();
-});
-exports.default = mongoose_1.default.model('Consultation', ConsultationSchema);
+// Compound index to ensure unique pricing per service_type + priority combination
+BusinessServicePricingSchema.index({ service_type: 1, priority: 1 }, { unique: true });
+// Index for efficient querying
+BusinessServicePricingSchema.index({ is_active: 1 });
+BusinessServicePricingSchema.index({ service_type: 1, is_active: 1 });
+const BusinessServicePricing = mongoose_1.default.model('BusinessServicePricing', BusinessServicePricingSchema);
+exports.default = BusinessServicePricing;

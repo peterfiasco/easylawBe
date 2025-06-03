@@ -34,52 +34,40 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 const mongoose_1 = __importStar(require("mongoose"));
-const ConsultationSchema = new mongoose_1.Schema({
-    user_id: {
+const GeneratedDocumentSchema = new mongoose_1.Schema({
+    title: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    content: {
+        type: String,
+        required: true
+    },
+    userId: {
         type: mongoose_1.default.Schema.Types.ObjectId,
         ref: 'User',
-        required: [true, 'User is required']
+        required: true
     },
-    consultation_type_id: {
+    templateId: {
         type: mongoose_1.default.Schema.Types.ObjectId,
-        ref: 'ConsultationType',
-        required: [true, 'Consultation type is required']
+        ref: 'DocumentTemplate',
+        required: false
     },
-    date: {
-        type: Date,
-        required: [true, 'Date is required']
-    },
-    time: {
-        type: String,
-        required: [true, 'Time is required']
-    },
-    reason: {
-        type: String,
-        required: [true, 'Reason is required'],
-        trim: true
+    formData: {
+        type: mongoose_1.default.Schema.Types.Mixed,
+        default: {}
     },
     status: {
         type: String,
-        enum: ['pending', 'paid', 'completed', 'cancelled'],
-        default: 'pending'
+        enum: ['draft', 'finalized', 'exported'],
+        default: 'draft'
     },
-    transaction_id: {
-        type: mongoose_1.default.Schema.Types.ObjectId,
-        ref: 'Transaction'
-    },
-    createdAt: {
-        type: Date,
-        default: Date.now
-    },
-    updated_at: {
-        type: Date,
-        default: Date.now
+    format: {
+        type: String,
+        default: 'html'
     }
+}, {
+    timestamps: true
 });
-ConsultationSchema.pre('save', function (next) {
-    if (this.isModified()) {
-        this.updated_at = new Date();
-    }
-    next();
-});
-exports.default = mongoose_1.default.model('Consultation', ConsultationSchema);
+exports.default = mongoose_1.default.model('GeneratedDocument', GeneratedDocumentSchema);
