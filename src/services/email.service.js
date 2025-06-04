@@ -1,4 +1,5 @@
-import mg, { MAILGUN_DOMAIN } from '../config/mailgun.config.js';
+const mg = require('../config/mailgun.config.js');
+const { MAILGUN_DOMAIN } = require('../config/mailgun.config.js');
 import dotenv from 'dotenv';
 
 dotenv.config();

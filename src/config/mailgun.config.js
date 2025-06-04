@@ -1,6 +1,6 @@
-import FormData from 'form-data';
-import Mailgun from 'mailgun.js';
-import dotenv from 'dotenv';
+const FormData = require('form-data');
+const Mailgun = require('mailgun.js');
+const dotenv = require('dotenv');
 
 dotenv.config();
 
@@ -12,10 +12,6 @@ const mg = mailgun.client({
   url: process.env.MAILGUN_BASE_URL || 'https://api.mailgun.net'
 });
 
-export default mg;
-
-// Use real domain if available, fallback to sandbox
-export const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || process.env.MAILGUN_SANDBOX_DOMAIN;
-
-// Check if we should use sandbox mode
-export const USE_SANDBOX = process.env.NODE_ENV !== 'production' || !process.env.MAILGUN_DOMAIN;
+module.exports = mg;
+module.exports.MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || process.env.MAILGUN_SANDBOX_DOMAIN;
+module.exports.USE_SANDBOX = process.env.NODE_ENV !== 'production' || !process.env.MAILGUN_DOMAIN;
