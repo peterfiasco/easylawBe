@@ -1,16 +1,15 @@
-const FormData = require('form-data');
-const Mailgun = require('mailgun.js');
 const dotenv = require('dotenv');
-
 dotenv.config();
 
-const mailgun = new Mailgun(FormData);
-
-const mg = mailgun.client({
-  username: 'api',
-  key: process.env.MAILGUN_API_KEY,
-  url: process.env.MAILGUN_BASE_URL || 'https://api.mailgun.net'
-});
+// Temporary mock for deployment
+const mg = {
+  messages: {
+    create: async (domain, data) => {
+      console.log('📧 Email would be sent:', data.subject, 'to:', data.to);
+      return { id: 'mock-email-id', message: 'Email queued' };
+    }
+  }
+};
 
 module.exports = mg;
 module.exports.MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || process.env.MAILGUN_SANDBOX_DOMAIN;
