@@ -58,7 +58,7 @@ connectDB();
 // CORS configuration
 const corsOptions = {
   origin: [
-    process.env.CORS_ORIGIN || 'https://easylawsolution.com',
+    process.env.CORS_ORIGIN?.split(',') || 'https://easylawsolution.com',
     'http://localhost:3000',
     'http://localhost:5173'
   ],
@@ -81,7 +81,10 @@ const corsOptions = {
   optionsSuccessStatus: 204
 };
 
-app.use(cors(corsOptions));
+app.use(cors({
+  origin: process.env.CORS_ORIGIN?.split(',') || ["http://localhost:3000", "http://localhost:5173"],
+  credentials: true
+}));
 
 // Handle preflight requests
 app.options('*', cors(corsOptions));
