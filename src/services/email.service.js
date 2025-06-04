@@ -1,6 +1,6 @@
 const mg = require('../config/mailgun.config.js');
 const { MAILGUN_DOMAIN } = require('../config/mailgun.config.js');
-import dotenv from 'dotenv';
+const dotenv = require('dotenv');
 
 dotenv.config();
 
@@ -8,7 +8,7 @@ const EMAIL_FROM_ADDRESS = process.env.EMAIL_FROM_ADDRESS || 'noreply@easylawsol
 const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'EasyLaw';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://easylawsolution.com';
 
-export const sendWelcomeEmail = async (userEmail, userName) => {
+const sendWelcomeEmail = async (userEmail, userName) => {
   try {
     const emailData = {
       from: `${EMAIL_FROM_NAME} <${EMAIL_FROM_ADDRESS}>`,
@@ -126,7 +126,7 @@ export const sendWelcomeEmail = async (userEmail, userName) => {
   }
 };
 
-export const sendCompanyWelcomeEmail = async (userEmail, userName, companyName) => {
+const sendCompanyWelcomeEmail = async (userEmail, userName, companyName) => {
   try {
     const emailData = {
       from: `${EMAIL_FROM_NAME} <${EMAIL_FROM_ADDRESS}>`,
@@ -257,7 +257,7 @@ export const sendCompanyWelcomeEmail = async (userEmail, userName, companyName) 
   }
 };
 
-export const sendPasswordResetEmail = async (userEmail, userName, resetToken) => {
+const sendPasswordResetEmail = async (userEmail, userName, resetToken) => {
   try {
     const resetUrl = `${FRONTEND_URL}/reset-password?token=${resetToken}`;
     
@@ -320,7 +320,7 @@ export const sendPasswordResetEmail = async (userEmail, userName, resetToken) =>
   }
 };
 
-export const sendConsultationBookingConfirmation = async (userEmail, userName, consultationDetails) => {
+const sendConsultationBookingConfirmation = async (userEmail, userName, consultationDetails) => {
   try {
     const { consultationType, date, time, referenceNumber, amount } = consultationDetails;
     
@@ -462,7 +462,7 @@ export const sendConsultationBookingConfirmation = async (userEmail, userName, c
   }
 };
 
-export const sendBusinessServiceStatusUpdate = async (userEmail, userName, serviceDetails) => {
+const sendBusinessServiceStatusUpdate = async (userEmail, userName, serviceDetails) => {
   try {
     const { serviceName, referenceNumber, status, statusMessage, serviceType } = serviceDetails;
     
@@ -621,7 +621,7 @@ export const sendBusinessServiceStatusUpdate = async (userEmail, userName, servi
   }
 };
 
-export const sendStaffAssignmentEmail = async (staffEmail, staffName, serviceDetails) => {
+const sendStaffAssignmentEmail = async (staffEmail, staffName, serviceDetails) => {
   try {
     const { serviceName, referenceNumber, clientName, serviceType, assignedDate } = serviceDetails;
     
@@ -764,7 +764,7 @@ export const sendStaffAssignmentEmail = async (staffEmail, staffName, serviceDet
   }
 };
 
-export const sendConsultationReminder = async (userEmail, userName, consultationDetails) => {
+const sendConsultationReminder = async (userEmail, userName, consultationDetails) => {
   try {
     const { consultationType, date, time, referenceNumber, meetingLink } = consultationDetails;
     
@@ -911,7 +911,7 @@ export const sendConsultationReminder = async (userEmail, userName, consultation
   }
 };
 
-export const sendDocumentReadyEmail = async (userEmail, userName, documentDetails) => {
+const sendDocumentReadyEmail = async (userEmail, userName, documentDetails) => {
   try {
     const { documentName, referenceNumber, downloadLink, expiryDate } = documentDetails;
     
@@ -1051,7 +1051,7 @@ export const sendDocumentReadyEmail = async (userEmail, userName, documentDetail
   }
 };
 
-export const sendGenericNotificationEmail = async (userEmail, userName, notificationDetails) => {
+const sendGenericNotificationEmail = async (userEmail, userName, notificationDetails) => {
   try {
     const { subject, title, message, actionUrl, actionText } = notificationDetails;
     
@@ -1136,7 +1136,7 @@ export const sendGenericNotificationEmail = async (userEmail, userName, notifica
   }
 };
 
-export const sendDueDiligenceConfirmation = async (email, firstName, details) => {
+const sendDueDiligenceConfirmation = async (email, firstName, details) => {
   try {
     const mailOptions = {
       from: `"EasyLaw" <${config.email.from}>`,
@@ -1179,7 +1179,7 @@ export const sendDueDiligenceConfirmation = async (email, firstName, details) =>
 
 
 // Export all email functions as a default object for easier importing
-export default {
+module.exports = {
   sendWelcomeEmail,
   sendCompanyWelcomeEmail,
   sendPasswordResetEmail,
@@ -1191,4 +1191,3 @@ export default {
   sendGenericNotificationEmail,
   sendDueDiligenceConfirmation
 };
-
